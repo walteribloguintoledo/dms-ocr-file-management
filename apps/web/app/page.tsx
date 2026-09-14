@@ -47,8 +47,13 @@ import {
   Status,
   Role,
 } from "../lib/types";
-import { demoDocuments, demoAudits } from "../lib/demo";
-import { request, clearToken } from "../lib/api";
+import { LoginScreen } from "../components/login-screen";
+import {
+  request,
+  clearToken,
+  getSessionRevision,
+  scannerHeaders,
+} from "../lib/api";
 import { importPages, rasterize, generatePdf } from "../lib/imaging";
 const navigation = [
   ["Dashboard", LayoutDashboard],
@@ -108,9 +113,9 @@ export default function Home() {
   const [view, setView] = useState("Dashboard"),
     [mobile, setMobile] = useState(false),
     [settings, setSettings] = useState<Settings>(defaultSettings),
-    [demo, setDemo] = useState(true),
-    [docs, setDocs] = useState<Doc[]>(demoDocuments),
-    [audits, setAudits] = useState<Audit[]>(demoAudits),
+    [authError, setAuthError] = useState(""),
+    [docs, setDocs] = useState<Doc[]>([]),
+    [audits, setAudits] = useState<Audit[]>([]),
     [user, setUser] = useState<{ name: string; role: Role } | null>(null),
     [connected, setConnected] = useState(false),
     [scanner, setScanner] = useState(false),
@@ -155,7 +160,8 @@ export default function Home() {
     versionTarget = useRef<string | undefined>(undefined),
     ocrGeneration = useRef(0);
   const notify = (message: string) => setToast(message);
-  const role = demo ? "ADMIN" : user?.role;
+  const demo = false;
+  const role = user?.role;
   const canEncode = role === "ADMIN" || role === "ENCODER";
   const canReview = role === "ADMIN" || role === "REVIEWER";
   useEffect(() => {
@@ -236,7 +242,32 @@ export default function Home() {
       previous?.focus();
     };
   }, [!!selected, login, metadataOpen, cropOpen]);
+  useEffect(() => {
+    const expire = () => {
+      clearToken();
+      setUser(null);
+      setDocs([]);
+      setAudits([]);
+      setPages([]);
+      setQueue([]);
+      setUsers([]);
+      setSelected(null);
+      setStats(null);
+      localFiles.current.clear();
+      setPassword("");
+      setAuthError(
+        "Your session expired or your role changed. Please sign in again.",
+      );
+      cancelOcr.current = true;
+      ocrGeneration.current++;
+      void worker.current?.terminate();
+      setNewUser({ name: "", email: "", password: "", role: "ENCODER" });
+    };
+    window.addEventListener("dms-session-expired", expire);
+    return () => window.removeEventListener("dms-session-expired", expire);
+  }, []);
   const go = (name: string) => {
+    if (["Scan", "Upload Queue"].includes(name) && !canEncode) return;
     setView(name);
     setMobile(false);
   };
@@ -277,29 +308,45 @@ export default function Home() {
     }
   }
   async function signIn() {
+    setAuthError("");
     setBusy(true);
+    clearToken();
     try {
       if (!settings.apiUrl)
         throw new Error("Set the DMS API URL in Settings first.");
       const data = await request(settings.apiUrl, "/auth/login", {
         method: "POST",
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email: email.trim(), password }),
       });
+      setPassword("");
+      try {
+        localStorage.setItem("folio-settings", JSON.stringify(settings));
+      } catch {}
       setUser(data.user);
-      setDemo(false);
+      setView("Dashboard");
+
       setDocs([]);
       setAudits([]);
-      await refresh();
+      try {
+        await refresh();
+      } catch {
+        notify(
+          "Signed in. Document data could not be loaded; use Refresh to retry.",
+        );
+      }
       setLogin(false);
       setPassword("");
-      notify("Connected to your DMS.");
+      notify("Signed in successfully.");
     } catch (e: any) {
-      notify(e.message);
+      setAuthError(e.message || "Unable to sign in. Check the API connection.");
+      setPassword("");
     } finally {
       setBusy(false);
     }
   }
   async function logout() {
+    setUser(null);
+    setBusy(true);
     try {
       if (!demo)
         await request(settings.apiUrl, "/auth/logout", { method: "POST" });
@@ -314,13 +361,14 @@ export default function Home() {
     localFiles.current.clear();
     setSelected(null);
     setStats(null);
-  }
-  async function switchDemo() {
-    await logout();
-    setDemo(true);
-    setDocs(demoDocuments);
-    setAudits(demoAudits);
-    notify("Demo workspace opened. Changes stay in this tab.");
+    setUsers([]);
+    setNewUser({ name: "", email: "", password: "", role: "ENCODER" });
+    setPassword("");
+    setAuthError("");
+    setBusy(false);
+    cancelOcr.current = true;
+    ocrGeneration.current++;
+    void worker.current?.terminate();
   }
   async function testConnection() {
     try {
@@ -333,6 +381,7 @@ export default function Home() {
   }
   async function checkScanner() {
     try {
+      await request(settings.apiUrl, "/auth/scanner");
       const url = new URL(settings.bridgeUrl);
       if (
         url.protocol !== "https:" ||
@@ -340,6 +389,7 @@ export default function Home() {
       )
         throw new Error("Use an HTTPS loopback scanner bridge URL.");
       const r = await fetch(`${settings.bridgeUrl}/scanners`, {
+        headers: scannerHeaders(settings.apiUrl, settings.bridgeUrl),
         signal: AbortSignal.timeout(4000),
       });
       if (!r.ok) throw new Error("Scanner bridge is unavailable.");
@@ -359,6 +409,8 @@ export default function Home() {
     }
   }
   async function importFiles(files: FileList | null, replace = false) {
+    const operationSession = getSessionRevision();
+
     if (!files?.length) return;
     setBusy(true);
     try {
@@ -368,16 +420,19 @@ export default function Home() {
           throw new Error(`Maximum file size is ${settings.maxFileMb} MB.`);
         if (!/\.(pdf|png|jpe?g|tiff?)$/i.test(file.name))
           throw new Error("Choose PDF, JPG, PNG, or TIFF files.");
-        additions.push(...await importPages(file));
+        additions.push(...(await importPages(file)));
       }
-      const retained = settings.removeBlank ? additions.filter(p => !p.blank) : additions;
+      const retained = settings.removeBlank
+        ? additions.filter((p) => !p.blank)
+        : additions;
+      if (operationSession !== getSessionRevision()) return;
       setPages((old) =>
         replace
           ? old.flatMap((p, i) => (i === pageIndex ? retained : [p]))
           : [...old, ...retained],
       );
       notify(
-        `${retained.length} pages imported. ${additions.length-retained.length} blank pages automatically removed.`,
+        `${retained.length} pages imported. ${additions.length - retained.length} blank pages automatically removed.`,
       );
       go("Scan");
     } catch (e: any) {
@@ -389,6 +444,8 @@ export default function Home() {
     }
   }
   async function scan(replace = false) {
+    const operationSession = getSessionRevision();
+
     if (!scanner) {
       await checkScanner();
       return;
@@ -396,9 +453,14 @@ export default function Home() {
     setBusy(true);
     log("SCAN_STARTED");
     try {
+      await request(settings.apiUrl, "/auth/scanner");
+      if (operationSession !== getSessionRevision()) return;
       const response = await fetch(`${settings.bridgeUrl}/scan`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...scannerHeaders(settings.apiUrl, settings.bridgeUrl),
+        },
         body: JSON.stringify({
           scanner: settings.scanner,
           dpi: Number(settings.dpi),
@@ -420,7 +482,10 @@ export default function Home() {
         const { imagePage } = await import("../lib/imaging");
         additions.push(await imagePage(p.dataUrl));
       }
-      const retained = settings.removeBlank ? additions.filter(p => !p.blank) : additions;
+      const retained = settings.removeBlank
+        ? additions.filter((p) => !p.blank)
+        : additions;
+      if (operationSession !== getSessionRevision()) return;
       setPages((old) =>
         replace
           ? old.flatMap((p, i) => (i === pageIndex ? retained : [p]))
@@ -543,6 +608,8 @@ export default function Home() {
     notify("Page cropped. Run OCR again for this page.");
   }
   async function makeDocument() {
+    const operationSession = getSessionRevision();
+
     if (!meta.title.trim()) {
       notify("Enter a document title.");
       return;
@@ -599,11 +666,14 @@ export default function Home() {
       const result = await generatePdf(pages, settings.pageSize);
       if (settings.pdfa || outputFormat !== "PDF") {
         const format = settings.pdfa ? "pdfa" : outputFormat.toLowerCase();
+        await request(settings.apiUrl, "/auth/scanner");
+        if (operationSession !== getSessionRevision()) return;
         const response = await fetch(settings.bridgeUrl + "/convert", {
           method: "POST",
           headers: {
             "Content-Type": "application/pdf",
             "X-Output-Format": format,
+            ...scannerHeaders(settings.apiUrl, settings.bridgeUrl),
           },
           body: result.blob,
           signal: AbortSignal.timeout(240000),
@@ -640,8 +710,10 @@ export default function Home() {
         });
         if (items.some((q) => q.file.size > settings.maxFileMb * 1048576))
           throw new Error("Generated file exceeds the configured size limit.");
+        if (operationSession !== getSessionRevision()) return;
         setQueue((old) => [...items, ...old]);
         setMetadataOpen(false);
+        if (operationSession !== getSessionRevision()) return;
         setPages([]);
         setPageIndex(0);
         go("Upload Queue");
@@ -664,8 +736,10 @@ export default function Home() {
         metadata: { ...meta, source: "SCANNER", pageCount: pages.length },
         attempts: 0,
       };
+      if (operationSession !== getSessionRevision()) return;
       setQueue((old) => [item, ...old]);
       setMetadataOpen(false);
+      if (operationSession !== getSessionRevision()) return;
       setPages([]);
       setPageIndex(0);
       go("Upload Queue");
@@ -678,6 +752,8 @@ export default function Home() {
     }
   }
   async function directUpload(files: FileList | null) {
+    const operationSession = getSessionRevision();
+
     if (!files?.length) return;
     setBusy(true);
     try {
@@ -712,6 +788,7 @@ export default function Home() {
           documentId: versionTarget.current,
         });
       }
+      if (operationSession !== getSessionRevision()) return;
       setQueue((old) => [...additions, ...old]);
       go("Upload Queue");
       setSelected(null);
@@ -728,6 +805,8 @@ export default function Home() {
   const updateQueue = (id: string, patch: Partial<QueueItem>) =>
     setQueue((old) => old.map((q) => (q.id === id ? { ...q, ...patch } : q)));
   async function upload(item: QueueItem) {
+    const operationSession = getSessionRevision();
+
     if (queueBusy.current.has(item.id)) return;
     queueBusy.current.add(item.id);
     updateQueue(item.id, {
@@ -814,6 +893,7 @@ export default function Home() {
         sessionId = signed.uploadId;
         updateQueue(item.id, { sessionId, progress: 80 });
       }
+      if (operationSession !== getSessionRevision()) return;
       await request(
         settings.apiUrl,
         item.documentId
@@ -1026,6 +1106,20 @@ export default function Home() {
       </div>
     );
   }
+  if (!user)
+    return (
+      <LoginScreen
+        email={email}
+        password={password}
+        apiUrl={settings.apiUrl}
+        busy={busy}
+        error={authError}
+        onEmail={setEmail}
+        onPassword={setPassword}
+        onApiUrl={(apiUrl) => setSettings({ ...settings, apiUrl })}
+        onSubmit={() => void signIn()}
+      />
+    );
   return (
     <div className="app">
       <input
@@ -1060,20 +1154,24 @@ export default function Home() {
         </div>
         <div className="nav-label">WORKSPACE</div>
         <nav className="nav">
-          {navigation.map(([name, Icon], i) => (
-            <button
-              key={name}
-              className={view === name ? "active" : ""}
-              onClick={() => go(name)}
-              style={i === 4 ? { marginTop: 25 } : undefined}
-            >
-              <Icon size={18} />
-              {name}
-              {name === "Upload Queue" && pending > 0 && (
-                <span className="count">{pending}</span>
-              )}
-            </button>
-          ))}
+          {navigation
+            .filter(
+              ([name]) => canEncode || !["Scan", "Upload Queue"].includes(name),
+            )
+            .map(([name, Icon], i) => (
+              <button
+                key={name}
+                className={view === name ? "active" : ""}
+                onClick={() => go(name)}
+                style={i === 4 ? { marginTop: 25 } : undefined}
+              >
+                <Icon size={18} />
+                {name}
+                {name === "Upload Queue" && pending > 0 && (
+                  <span className="count">{pending}</span>
+                )}
+              </button>
+            ))}
         </nav>
         <div className="sidebar-bottom">
           <div className="device">
@@ -1970,6 +2068,7 @@ export default function Home() {
                       DMS API URL
                       <input
                         placeholder="https://your-dms-domain.com/api"
+                        readOnly
                         value={settings.apiUrl}
                         onChange={(e) =>
                           setSettings({ ...settings, apiUrl: e.target.value })
@@ -1981,15 +2080,7 @@ export default function Home() {
                         <Wifi size={15} />
                         Test connection
                       </button>
-                      <button
-                        className="primary"
-                        onClick={() => setLogin(true)}
-                      >
-                        Sign in to DMS
-                      </button>
-                      <button onClick={() => void switchDemo()}>
-                        Use demo
-                      </button>
+                      <small>Sign out to change your API connection.</small>
                     </div>
                     <label className="full">
                       Scanner bridge URL

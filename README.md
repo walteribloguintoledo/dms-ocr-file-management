@@ -2,16 +2,16 @@
 
 A document management workspace for the Fujitsu fi-7180, using Next.js, NestJS, PostgreSQL, Prisma, AWS Amplify, and Amazon S3.
 
-## Start the demo
+## Start the workspace
 
-Requires Node.js 22 and npm. No cloud account or database is needed for the demo.
+Requires Node.js 22, npm, and the configured DMS API.
 
 ```powershell
 npm ci
 npm run dev
 ```
 
-Open http://127.0.0.1:3000. The explicitly labeled demo uses sample records and keeps changes and imported files in tab memory. Only device preferences are persisted in browser storage. Reloading resets the demo.
+Open http://127.0.0.1:3000 and sign in with your seeded administrator account. The workspace no longer has a demo login or anonymous access. Use Connection settings on the login screen to set the API URL. Passwords and access tokens are never saved in browser storage.
 
 On this workstation, the global npm wrapper points to a missing installation. The working fallback is:
 
@@ -37,6 +37,8 @@ npm run dev:api
 5. In the web workspace's Settings, enter `http://127.0.0.1:4000/api` for local development, save, and sign in. Production API URLs must use HTTPS.
 
 The API fails startup if its required configuration is missing. It never falls back to sample data. Seed creates an administrator only if that email does not already exist, and never resets an existing password.
+
+If seeding reports missing administrator settings, add `ADMIN_EMAIL` and a quoted `ADMIN_PASSWORD` of at least 12 characters to the project-root `.env.local` or `.env`, then rerun `npm run db:seed`. `ADMIN_NAME` is optional. Choose your own password locally; do not use example credentials. The seed script loads process environment variables first, then `.env.local`, then `.env`, regardless of the working directory. It validates required settings before contacting the database.
 
 ## Scanner bridge
 
@@ -115,3 +117,18 @@ The implementation is an initial application, not a production acceptance sign-o
 - Temporary location and log levels belong to the installed services. Browser settings do not change operating-system paths or server logging.
 
 See `docs/ACCEPTANCE.md` for the remaining environment-dependent checks.
+
+## Login and roles
+
+Sign-in is required before the workspace is shown. Reloading requires sign-in again; expired API access tokens refresh during an active session. Logout and rejected/revoked sessions clear cached documents and credentials.
+
+Administrators manage accounts in **Settings → User management**: enter a name, email, a unique password of at least 12 characters, and the intended role. Choose **Load users** to list accounts or change another user’s role. Role changes revoke that user’s sessions, requiring a fresh sign-in. There are no built-in default passwords.
+
+- Administrator: manage accounts, documents, scanning, and all workflow steps.
+- Encoder: scan, upload, edit active records, and submit for review.
+- Reviewer: browse authorized documents, approve, and archive.
+- Read-only: browse and download permitted documents.
+
+The scanner bridge now requires `DMS_API_URL` in `scanner-bridge/.env`; it validates each request against `/api/auth/scanner`. Restart the bridge and API after this update. An administrator or encoder session and a reachable API are required to operate the scanner.
+
+Run `npm run test:auth` for server authorization tests, `npm test` for client-session and policy tests, and `node scripts/check-admin-http.cjs` for isolated HTTP checks. These tests do not use the live database.

@@ -1,6 +1,8 @@
 import "reflect-metadata";
+import { AuthGuard } from "./auth.guard";
 import { config } from "dotenv";
 import { resolve } from "node:path";
+config({ path: resolve(__dirname, "../../../.env.local") });
 config({ path: resolve(__dirname, "../../../.env") });
 config();
 import { NestFactory, Reflector, APP_GUARD } from "@nestjs/core";
@@ -124,52 +126,6 @@ function checkMetadata(metadata: Record<string, any>) {
     throw new BadRequestException("Invalid confidentiality.");
 }
 @Injectable()
-class AuthGuard implements CanActivate {
-  constructor(
-    private readonly jwt: JwtService,
-    private readonly reflector: Reflector,
-  ) {}
-  async canActivate(ctx: ExecutionContext) {
-    if (
-      this.reflector.getAllAndOverride("public", [
-        ctx.getHandler(),
-        ctx.getClass(),
-      ])
-    )
-      return true;
-    const req = ctx.switchToHttp().getRequest();
-    const token = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
-    try {
-      const payload = await this.jwt.verifyAsync(token || "");
-      const session = await prisma.refreshSession.findUnique({
-        where: { id: payload.sid },
-        include: { user: true },
-      });
-      if (
-        !session ||
-        session.revokedAt ||
-        session.expiresAt < new Date() ||
-        !session.user.active ||
-        session.userId !== payload.sub
-      )
-        throw new Error();
-      req.user = session.user;
-      req.sessionId = session.id;
-    } catch {
-      throw new UnauthorizedException(
-        "Your session has expired. Please sign in.",
-      );
-    }
-    const roles = this.reflector.getAllAndOverride<Role[]>("roles", [
-      ctx.getHandler(),
-      ctx.getClass(),
-    ]);
-    if (roles && !roles.includes(req.user.role))
-      throw new ForbiddenException("Your role cannot perform this action.");
-    return true;
-  }
-}
-@Injectable()
 class AuthService {
   constructor(private readonly jwt: JwtService) {}
   async issue(user: any, res: Response, tx: any = prisma) {
@@ -200,6 +156,11 @@ class AuthService {
 @Controller("auth")
 class AuthController {
   constructor(private readonly auth: AuthService) {}
+  @Get("scanner")
+  @Roles("ADMIN", "ENCODER")
+  scannerAccess() {
+    return { allowed: true };
+  }
   @Public()
   @Post("login")
   @HttpCode(200)
@@ -209,7 +170,7 @@ class AuthController {
     @Res({ passthrough: true }) res: Response,
   ) {
     const user = await prisma.user.findUnique({
-      where: { email: body.email.toLowerCase() },
+      where: { email: body.email.trim().toLowerCase() },
     });
     if (!user?.active || !(await compare(body.password, user.passwordHash)))
       throw new UnauthorizedException("Invalid email or password.");
@@ -824,6 +785,7 @@ class WorkspaceController {
   controllers: [AuthController, DocumentController, WorkspaceController],
   providers: [
     AuthService,
+    { provide: "SESSION_STORE", useValue: prisma },
     { provide: APP_GUARD, useClass: ThrottlerGuard },
     { provide: APP_GUARD, useClass: AuthGuard },
   ],

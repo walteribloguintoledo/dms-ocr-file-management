@@ -17,6 +17,20 @@ import { config } from "dotenv";
 config({ path: resolve("scanner-bridge/.env") });
 const run = promisify(execFile);
 const executable = process.env.NAPS2_EXE;
+const dmsApi = process.env.DMS_API_URL;
+if (!dmsApi)
+  throw new Error(
+    "Set DMS_API_URL in scanner-bridge/.env to verify scanner permissions.",
+  );
+const dmsUrl = new URL(dmsApi);
+if (
+  dmsUrl.protocol !== "https:" &&
+  !(
+    dmsUrl.protocol === "http:" &&
+    ["localhost", "127.0.0.1"].includes(dmsUrl.hostname)
+  )
+)
+  throw new Error("DMS_API_URL must use HTTPS outside local development.");
 const origins = (process.env.BRIDGE_ALLOWED_ORIGINS || "")
   .split(",")
   .filter(Boolean);
@@ -77,7 +91,7 @@ const server = https.createServer(
     res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader(
       "Access-Control-Allow-Headers",
-      "Content-Type, X-Output-Format",
+      "Content-Type, X-Output-Format, Authorization",
     );
     res.setHeader("Access-Control-Allow-Private-Network", "true");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -88,6 +102,25 @@ const server = https.createServer(
     }
     let dir;
     try {
+      if (!req.headers.authorization?.startsWith("Bearer ")) {
+        send(res, 401, { message: "Sign in to use the scanner." });
+        return;
+      }
+      const permission = await fetch(
+        dmsApi.replace(/\/$/, "") + "/auth/scanner",
+        {
+          headers: { Authorization: req.headers.authorization },
+          signal: AbortSignal.timeout(10000),
+          redirect: "error",
+        },
+      );
+      if (!permission.ok) {
+        send(res, permission.status === 403 ? 403 : 401, {
+          message:
+            "Your account cannot use the scanner. Sign in with an administrator or encoder account.",
+        });
+        return;
+      }
       if (req.method === "GET" && req.url === "/scanners") {
         const { stdout } = await command([
           "--listdevices",

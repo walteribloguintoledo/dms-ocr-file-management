@@ -15,18 +15,21 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "tsx prisma/seed.ts",
     "postinstall": "prisma generate && node scripts/prepare-web.mjs",
-    "scanner:bridge": "node scanner-bridge/bridge.mjs"
+    "scanner:bridge": "node scanner-bridge/bridge.mjs",
+    "test:auth": "node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json && node --test tests/auth-guard.test.cjs"
   },
   "dependencies": {
+    "@neon/config": "^1.4.2",
+    "@neon/env": "^1.3.2",
     "@prisma/client": "^6.19.0",
     "bcryptjs": "^3.0.2"
   },
   "devDependencies": {
+    "@types/node": "^22.0.0",
+    "prettier": "^3.6.0",
     "prisma": "^6.19.0",
     "tsx": "^4.20.0",
-    "typescript": "^5.9.0",
-    "@types/node": "^22.0.0",
-    "prettier": "^3.6.0"
+    "typescript": "^5.9.0"
   },
   "overrides": {
     "multer": "^2.3.0",

@@ -60,7 +60,9 @@ export type Settings = {
   maxFileMb: number;
 };
 export const defaultSettings: Settings = {
-  apiUrl: process.env.NEXT_PUBLIC_DMS_API_URL || "",
+  apiUrl:
+    process.env.NEXT_PUBLIC_DMS_API_URL ||
+    (process.env.NODE_ENV === "development" ? "http://127.0.0.1:4000/api" : ""),
   scanner: "Fujitsu fi-7180",
   bridgeUrl: "https://localhost:17483",
   dpi: "300",
