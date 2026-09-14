@@ -9,6 +9,8 @@ const base=`http://127.0.0.1:${port}/api`;
 const health=await fetch(base+'/health');assert.equal(health.status,200);assert.equal((await health.json()).storageConfigured,!process.argv.includes('--without-storage'));
 assert.equal((await fetch(base+'/documents')).status,401);
 assert.equal((await fetch(base+'/users')).status,401);
+for(let i=0;i<2;i++){const logout=await fetch(base+'/auth/logout',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'}});assert.equal(logout.status,200);assert.match(logout.headers.get('set-cookie'),/dms_refresh=;/);}
+
 assert.equal((await fetch(base+'/auth/refresh',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{}'})).status,401);
 assert.equal((await fetch(base+'/auth/login',{method:'POST',headers:{Origin:'https://untrusted.example','Content-Type':'application/json'},body:'{}'})).status,403);
 assert.equal((await fetch(base+'/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({email:'invalid',password:'x',role:'ADMIN'})})).status,400);

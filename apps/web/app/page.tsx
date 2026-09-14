@@ -160,6 +160,8 @@ export default function Home() {
     versionTarget = useRef<string | undefined>(undefined),
     ocrGeneration = useRef(0);
   const notify = (message: string) => setToast(message);
+  const [storageConfigured, setStorageConfigured] = useState<boolean | null>(null);
+  const [scannerError, setScannerError] = useState("");
   const demo = false;
   const role = user?.role;
   const canEncode = role === "ADMIN" || role === "ENCODER";
@@ -293,11 +295,13 @@ export default function Home() {
   };
   async function refresh() {
     try {
-      const [documents, logs, dashboard] = await Promise.all([
+      const [documents, logs, dashboard, health] = await Promise.all([
         request(settings.apiUrl, "/documents"),
         request(settings.apiUrl, "/logs"),
         request(settings.apiUrl, "/dashboard"),
+        request(settings.apiUrl, "/health", {}, false),
       ]);
+      setStorageConfigured(health.storageConfigured === false ? false : true);
       setDocs(documents);
       setAudits(logs);
       setStats(dashboard);
@@ -349,7 +353,7 @@ export default function Home() {
     setBusy(true);
     try {
       if (!demo)
-        await request(settings.apiUrl, "/auth/logout", { method: "POST" });
+        await request(settings.apiUrl, "/auth/logout", { method: "POST" }, false);
     } catch {}
     clearToken();
     setUser(null);
@@ -373,13 +377,15 @@ export default function Home() {
   async function testConnection() {
     try {
       if (!settings.apiUrl) throw new Error("Enter the API URL first.");
-      await request(settings.apiUrl, "/health", {}, false);
-      notify("DMS API is reachable. Sign in to access documents.");
+      const health = await request(settings.apiUrl, "/health", {}, false);
+      setStorageConfigured(health.storageConfigured !== false);
+      notify(health.storageConfigured === false ? "API connected. File storage needs S3_BUCKET and AWS_REGION; restart the API after configuring them." : "DMS API and storage configuration are ready.");
     } catch (e: any) {
       notify(e.message);
     }
   }
   async function checkScanner() {
+    setScannerError("");
     try {
       await request(settings.apiUrl, "/auth/scanner");
       const url = new URL(settings.bridgeUrl);
@@ -392,7 +398,7 @@ export default function Home() {
         headers: scannerHeaders(settings.apiUrl, settings.bridgeUrl),
         signal: AbortSignal.timeout(4000),
       });
-      if (!r.ok) throw new Error("Scanner bridge is unavailable.");
+      if (!r.ok) { const error = await r.json().catch(() => ({})); throw new Error(error.message || "The scanner bridge rejected the request."); }
       const devices = await r.json();
       const found = devices.some((d: any) => d.name.includes("fi-7180"));
       setScanner(found);
@@ -403,9 +409,9 @@ export default function Home() {
       );
     } catch (e: any) {
       setScanner(false);
-      notify(
-        "Scanner bridge not connected. You can import files exported by PaperStream Capture.",
-      );
+      const message = e instanceof TypeError || e.name === "TimeoutError" ? "Cannot reach the local scanner bridge. Install NAPS2, configure scanner-bridge/.env with a trusted HTTPS certificate, then run npm run scanner:bridge. You can still import exported files." : e.message;
+      setScannerError(message);
+      notify(message);
     }
   }
   async function importFiles(files: FileList | null, replace = false) {
@@ -872,6 +878,9 @@ export default function Home() {
         return;
       }
       if (!user) throw new Error("Sign in to your DMS before uploading.");
+      const health = await request(settings.apiUrl, "/health", {}, false);
+      setStorageConfigured(health.storageConfigured !== false);
+      if (health.storageConfigured === false) throw new Error("Uploads are unavailable until S3_BUCKET and AWS_REGION are configured. Your file remains in the queue.");
       let sessionId = item.sessionId;
       if (!sessionId) {
         const signed = await request(settings.apiUrl, "/documents/upload-url", {
@@ -1257,6 +1266,8 @@ export default function Home() {
           </div>
         </header>
         <div className="content">
+          {storageConfigured === false && <div className="notice" role="status">File storage is not configured. You can manage users and prepare documents, but uploads and downloads require S3_BUCKET and AWS_REGION in the API environment. Restart the API, then use Settings → Test connection.</div>}
+          {view === "Scan" && scannerError && <div className="notice" role="alert">{scannerError}</div>}
           <div className="page-head">
             <div>
               <h1>

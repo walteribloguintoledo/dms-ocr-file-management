@@ -1,6 +1,13 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clearToken, request, scannerHeaders } from "../apps/web/lib/api";
+test("logout never attempts token refresh when a session is already expired", async () => {
+  const original = globalThis.fetch;
+  const calls: string[] = [];
+  globalThis.fetch = async (url) => { calls.push(String(url)); return Response.json({message:"Expired"},{status:401}); };
+  try { await assert.rejects(request("https://dms.example/api", "/auth/logout", {method:"POST"})); assert.deepEqual(calls,["https://dms.example/api/auth/logout"]); }
+  finally { globalThis.fetch=original; clearToken(); }
+});
 test("access tokens stay scoped to the signed-in API and are cleared on logout", async () => {
   const original = globalThis.fetch;
   const calls: RequestInit[] = [];

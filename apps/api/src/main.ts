@@ -162,7 +162,7 @@ class AuthService {
 }
 @Controller("auth")
 class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(private readonly auth: AuthService, private readonly jwt: JwtService) {}
   @Get("scanner")
   @Roles("ADMIN", "ENCODER")
   scannerAccess() {
@@ -214,21 +214,32 @@ class AuthController {
       return this.auth.issue(session.user, res, tx);
     });
   }
+  @Public()
   @Post("logout")
   @HttpCode(200)
   async logout(@Req() req: any, @Res({ passthrough: true }) res: Response) {
-    await prisma.$transaction([
-      prisma.refreshSession.updateMany({
-        where: { id: req.sessionId },
-        data: { revokedAt: new Date() },
-      }),
-      prisma.auditEvent.create({
-        data: { actorId: req.user.id, action: "USER_LOGOUT" },
-      }),
-    ]);
-    res.clearCookie("dms_refresh", cookieOptions);
-    return { ok: true };
+    const { maxAge, ...clearOptions } = cookieOptions;
+    res.clearCookie("dms_refresh", clearOptions);
+    const proofs: Prisma.RefreshSessionWhereInput[] = [];
+    if (req.cookies.dms_refresh) proofs.push({tokenHash: digest(req.cookies.dms_refresh)});
+    const bearer = req.headers.authorization?.match(/^Bearer (.+)$/)?.[1];
+    if (bearer) {
+      try {
+        // An expired, correctly signed token can revoke its session, never authorize access.
+        const payload = await this.jwt.verifyAsync(bearer, {ignoreExpiration: true});
+        if (typeof payload.sid === "string" && typeof payload.sub === "string") proofs.push({id:payload.sid,userId:payload.sub});
+      } catch {}
+    }
+    if (proofs.length) await prisma.$transaction(async tx => {
+      const sessions = await tx.refreshSession.findMany({where:{OR:proofs,revokedAt:null},select:{id:true,userId:true}});
+      for (const session of sessions) {
+        const revoked=await tx.refreshSession.updateMany({where:{id:session.id,revokedAt:null},data:{revokedAt:new Date()}});
+        if (revoked.count) await tx.auditEvent.create({data:{actorId:session.userId,action:"USER_LOGOUT"}});
+      }
+    });
+    return {ok:true};
   }
+
 }
 async function getDocument(id: string, user: any) {
   const doc = await prisma.document.findFirst({

@@ -57,7 +57,8 @@ export async function request(
     response.status === 401 &&
     retry &&
     path !== "/auth/login" &&
-    path !== "/auth/refresh"
+    path !== "/auth/refresh" &&
+    path !== "/auth/logout"
   ) {
     if (!refreshing)
       refreshing = request(
@@ -83,7 +84,8 @@ export async function request(
   if (
     response.status === 401 &&
     path !== "/auth/login" &&
-    path !== "/auth/refresh"
+    path !== "/auth/refresh" &&
+    path !== "/auth/logout"
   ) {
     clearToken();
     if (typeof window !== "undefined")
