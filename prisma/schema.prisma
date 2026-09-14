@@ -1,0 +1,119 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url = env("DATABASE_URL")
+}
+enum Role {
+  ADMIN
+  ENCODER
+  REVIEWER
+  READ_ONLY
+}
+enum DocumentStatus {
+  UPLOADED
+  IN_REVIEW
+  APPROVED
+  ARCHIVED
+}
+model User {
+  id String @id @default(uuid())
+  email String @unique
+  name String
+  passwordHash String
+  role Role @default(READ_ONLY)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  sessions RefreshSession[]
+  documents Document[]
+  audits AuditEvent[]
+  uploads UploadSession[]
+}
+model RefreshSession {
+  id String @id @default(uuid())
+  tokenHash String @unique
+  userId String
+  user User @relation(fields:[userId],references:[id])
+  expiresAt DateTime
+  revokedAt DateTime?
+  createdAt DateTime @default(now())
+  @@index([userId])
+}
+model Category {
+  id String @id @default(uuid())
+  name String @unique
+  documents Document[]
+}
+model Document {
+  id String @id @default(uuid())
+  sequence Int @unique @default(autoincrement())
+  documentNumber String @unique @default(uuid())
+  title String
+  description String @default("")
+  categoryId String?
+  category Category? @relation(fields:[categoryId],references:[id])
+  employeeId String @default("")
+  employeeName String @default("")
+  status DocumentStatus @default(UPLOADED)
+  source String
+  mimeType String
+  fileSize Int
+  s3Key String
+  checksum String
+  ocrText String @default("")
+  tags String[] @default([])
+  metadata Json @default("{}")
+  createdBy String
+  creator User @relation(fields:[createdBy],references:[id])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+  versions DocumentVersion[]
+  audits AuditEvent[]
+  @@index([employeeId])
+  @@index([status,createdAt])
+  @@index([categoryId])
+}
+model DocumentVersion {
+  id String @id @default(uuid())
+  documentId String
+  document Document @relation(fields:[documentId],references:[id])
+  version Int
+  s3Key String
+  s3VersionId String?
+  mimeType String
+  fileSize Int
+  checksum String
+  ocrText String @default("")
+  createdBy String
+  createdAt DateTime @default(now())
+  uploadId String @unique
+  @@unique([documentId,version])
+}
+model UploadSession {
+  id String @id @default(uuid())
+  userId String
+  user User @relation(fields:[userId],references:[id])
+  documentId String?
+  s3Key String @unique
+  fileName String
+  mimeType String
+  fileSize Int
+  checksum String
+  expiresAt DateTime
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+}
+model AuditEvent {
+  id String @id @default(uuid())
+  action String
+  actorId String
+  actor User @relation(fields:[actorId],references:[id])
+  documentId String?
+  document Document? @relation(fields:[documentId],references:[id])
+  details Json @default("{}")
+  createdAt DateTime @default(now())
+  @@index([documentId,createdAt])
+  @@index([createdAt])
+}

@@ -1,0 +1,36 @@
+{
+  "name": "folio-dms",
+  "version": "0.1.0",
+  "private": true,
+  "workspaces": [
+    "apps/*"
+  ],
+  "scripts": {
+    "dev": "node node_modules/next/dist/bin/next dev apps/web --hostname 127.0.0.1",
+    "dev:api": "node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json && node apps/api/dist/main.js",
+    "build": "node node_modules/next/dist/bin/next build apps/web && node node_modules/typescript/bin/tsc -p apps/api/tsconfig.json",
+    "typecheck": "node node_modules/typescript/bin/tsc --noEmit -p apps/web/tsconfig.json && node node_modules/typescript/bin/tsc --noEmit -p apps/api/tsconfig.json",
+    "test": "tsx --test tests/*.test.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:seed": "tsx prisma/seed.ts",
+    "postinstall": "prisma generate && node scripts/prepare-web.mjs",
+    "scanner:bridge": "node scanner-bridge/bridge.mjs"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.0",
+    "bcryptjs": "^3.0.2"
+  },
+  "devDependencies": {
+    "prisma": "^6.19.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "@types/node": "^22.0.0",
+    "prettier": "^3.6.0"
+  },
+  "overrides": {
+    "multer": "^2.3.0",
+    "postcss": "^8.5.23",
+    "deepmerge-ts": "^8.0.0"
+  }
+}

@@ -1,0 +1,62 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: Private versioned document storage for Folio DMS
+Parameters:
+  WebOrigin:
+    Type: String
+    AllowedPattern: 'https://.+'
+Resources:
+  DocumentsBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      CorsConfiguration:
+        CorsRules:
+          - AllowedOrigins: [!Ref WebOrigin]
+            AllowedMethods: [GET, HEAD, PUT]
+            AllowedHeaders: ['content-type', 'x-amz-checksum-sha256', 'x-amz-server-side-encryption', 'x-amz-content-sha256', 'x-amz-user-agent']
+            ExposedHeaders: [ETag, x-amz-checksum-sha256]
+            MaxAge: 300
+      LifecycleConfiguration:
+        Rules:
+          - Id: ExpireStaging
+            Status: Enabled
+            Prefix: staging/
+            ExpirationInDays: 2
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 2
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 1
+  SecureTransportPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref DocumentsBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource: [!GetAtt DocumentsBucket.Arn, !Sub '${DocumentsBucket.Arn}/*']
+            Condition:
+              Bool:
+                aws:SecureTransport: false
+Outputs:
+  BucketName:
+    Value: !Ref DocumentsBucket
+  BucketArn:
+    Value: !GetAtt DocumentsBucket.Arn
