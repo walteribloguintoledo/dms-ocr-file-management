@@ -898,7 +898,22 @@ export default function Home() {
           headers: signed.headers,
           body: item.file,
         });
-        if (!result.ok) throw new Error(`S3 upload failed (${result.status}).`);
+        if (!result.ok) {
+          let code = "";
+          try {
+            const xml = new DOMParser().parseFromString(await result.text(), "application/xml");
+            const value = xml.querySelector("Code")?.textContent || "";
+            if (/^[A-Za-z0-9]{1,80}$/.test(value)) code = value;
+          } catch { /* Keep the HTTP status when the error body is unavailable. */ }
+          const hints: Record<string, string> = {
+            AccessDenied: "Check IAM and bucket permissions for s3:PutObject under staging/ and any encryption requirements.",
+            SignatureDoesNotMatch: "Check the API's AWS credentials, bucket region, and signed request headers.",
+            InvalidAccessKeyId: "The API's AWS access key is invalid or inactive.",
+            ExpiredToken: "Refresh the API's temporary AWS credentials and restart it.",
+            RequestTimeTooSkewed: "Synchronize the API computer's clock.",
+          };
+          throw new Error(`S3 upload failed (${result.status}${code ? `: ${code}` : ""}). ${hints[code] || "Check the failed PUT response in the browser Network panel."}`);
+        }
         sessionId = signed.uploadId;
         updateQueue(item.id, { sessionId, progress: 80 });
       }
