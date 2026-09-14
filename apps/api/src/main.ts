@@ -362,7 +362,7 @@ class DocumentController {
         ChecksumSHA256: checksum64,
         ServerSideEncryption: "AES256",
       }),
-      { expiresIn: 300 },
+      { expiresIn: 300, unhoistableHeaders: new Set(["x-amz-checksum-sha256", "x-amz-server-side-encryption"]) },
     );
     return {
       uploadId: session.id,
