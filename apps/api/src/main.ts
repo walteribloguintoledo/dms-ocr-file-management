@@ -28,6 +28,7 @@ import {
   Res,
   SetMetadata,
   UnauthorizedException,
+  ServiceUnavailableException,
   ValidationPipe,
 } from "@nestjs/common";
 import { JwtModule, JwtService } from "@nestjs/jwt";
@@ -68,9 +69,8 @@ const production = process.env.NODE_ENV === "production";
 for (const key of [
   "DATABASE_URL",
   "JWT_SECRET",
-  "S3_BUCKET",
-  "AWS_REGION",
   "WEB_ORIGIN",
+  ...(production ? ["S3_BUCKET", "AWS_REGION"] : []),
 ])
   if (!process.env[key])
     throw new Error(`Missing required environment variable: ${key}`);
@@ -80,8 +80,15 @@ const origins = process.env.WEB_ORIGIN!.split(",").map((s) => s.trim());
 if (production && origins.some((s) => !s.startsWith("https://")))
   throw new Error("Production web origins must use HTTPS.");
 const prisma = new PrismaClient(),
-  s3 = new S3Client({ region: process.env.AWS_REGION }),
   bucket = process.env.S3_BUCKET!;
+const storageConfigured = Boolean(bucket?.trim() && process.env.AWS_REGION?.trim());
+let storageClient: S3Client | undefined;
+function requireStorage() {
+  if (!storageConfigured) throw new ServiceUnavailableException(
+    "Document storage is not configured. Set S3_BUCKET and AWS_REGION in the API environment and restart the API.",
+  );
+  return storageClient ??= new S3Client({ region: process.env.AWS_REGION });
+}
 const maxSize = Math.min(
   104857600,
   Number(process.env.MAX_FILE_SIZE_MB || 50) * 1048576,
@@ -298,6 +305,7 @@ class DocumentController {
   @Post("upload-url")
   @Roles("ADMIN", "ENCODER")
   async presign(@Req() req: any, @Body() body: UploadDto) {
+    requireStorage();
     if (!validateFile(body.fileName, body.mimeType, body.fileSize, maxSize))
       throw new BadRequestException(
         "File extension, MIME type, or size is not allowed.",
@@ -334,7 +342,7 @@ class DocumentController {
     });
     const checksum64 = Buffer.from(body.checksum, "hex").toString("base64");
     const url = await getSignedUrl(
-      s3,
+      requireStorage(),
       new PutObjectCommand({
         Bucket: bucket,
         Key: key,
@@ -356,6 +364,7 @@ class DocumentController {
     };
   }
   async finalize(req: any, body: DocumentDto, documentId?: string) {
+    requireStorage();
     checkMetadata(body.metadata);
     const existing = await prisma.documentVersion.findUnique({
       where: { uploadId: body.uploadId },
@@ -381,7 +390,7 @@ class DocumentController {
     )
       throw new BadRequestException("Invalid or expired upload session.");
     if (documentId) await getDocument(documentId, req.user);
-    const head = await s3.send(
+    const head = await requireStorage().send(
       new HeadObjectCommand({
         Bucket: bucket,
         Key: upload.s3Key,
@@ -401,7 +410,7 @@ class DocumentController {
       throw new BadRequestException(
         "Enable S3 bucket versioning before accepting documents.",
       );
-    const object = await s3.send(
+    const object = await requireStorage().send(
       new GetObjectCommand({
         Bucket: bucket,
         Key: upload.s3Key,
@@ -415,7 +424,7 @@ class DocumentController {
         "The file contents do not match its declared type.",
       );
     const key = `documents/${req.user.id}/${upload.id}`;
-    const copied = await s3.send(
+    const copied = await requireStorage().send(
       new CopyObjectCommand({
         Bucket: bucket,
         Key: key,
@@ -542,6 +551,7 @@ class DocumentController {
     @Query("inline") inline?: string,
     @Query("version") version?: string,
   ) {
+    requireStorage();
     const doc = await getDocument(id, req.user);
     const v = await prisma.documentVersion.findFirst({
       where: {
@@ -561,7 +571,7 @@ class DocumentController {
           : "jpg";
     return {
       url: await getSignedUrl(
-        s3,
+        requireStorage(),
         new GetObjectCommand({
           Bucket: bucket,
           Key: v.s3Key,
@@ -659,7 +669,7 @@ class DocumentController {
 @Controller()
 class WorkspaceController {
   @Public() @Get("health") health() {
-    return { status: "ok", service: "folio-dms-api" };
+    return { status: "ok", service: "folio-dms-api", storageConfigured };
   }
   @Get("dashboard") async dashboard(@Req() req: any) {
     const start = new Date();

@@ -132,3 +132,7 @@ Administrators manage accounts in **Settings → User management**: enter a name
 The scanner bridge now requires `DMS_API_URL` in `scanner-bridge/.env`; it validates each request against `/api/auth/scanner`. Restart the bridge and API after this update. An administrator or encoder session and a reachable API are required to operate the scanner.
 
 Run `npm run test:auth` for server authorization tests, `npm test` for client-session and policy tests, and `node scripts/check-admin-http.cjs` for isolated HTTP checks. These tests do not use the live database.
+
+### Local authentication before S3 setup
+
+The local API requires `DATABASE_URL`, `JWT_SECRET` (at least 32 characters), and `WEB_ORIGIN`. S3 settings are optional in development so login and account management can start independently. Upload and download routes return HTTP 503 until `S3_BUCKET` and `AWS_REGION` are configured. Production startup still requires both S3 settings. `/api/health` reports `storageConfigured`. Keep the JWT key in an ignored environment file or secret manager, and preserve it across restarts.
