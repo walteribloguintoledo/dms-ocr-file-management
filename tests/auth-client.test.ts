@@ -1,6 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clearToken, request, scannerHeaders } from "../apps/web/lib/api";
+import { clearToken, request, scannerHeaders, restoreSession } from "../apps/web/lib/api";
+test("page-load restoration shares one refresh and restores the access token", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  let finish!: (value: Response) => void;
+  globalThis.fetch = async () => { calls++; return new Promise<Response>(resolve => { finish = resolve; }); };
+  try {
+    clearToken();
+    const first = restoreSession("https://dms.example/api");
+    const second = restoreSession("https://dms.example/api");
+    assert.equal(calls, 1);
+    finish(Response.json({accessToken:"restored-token",user:{name:"Test",role:"ADMIN"}}));
+    const [a,b] = await Promise.all([first,second]);
+    assert.equal(a.user.name,"Test");
+    assert.deepEqual(a,b);
+    assert.equal(scannerHeaders("https://dms.example/api", "https://localhost:17483").Authorization,"Bearer restored-token");
+  } finally { globalThis.fetch=original; clearToken(); }
+});
 test("temporary refresh failures preserve the session, but rejected credentials clear it", async () => {
   const original = globalThis.fetch;
   try {

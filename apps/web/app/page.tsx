@@ -50,6 +50,8 @@ import {
 import { LoginScreen } from "../components/login-screen";
 import {
   request,
+  restoreSession,
+  ApiError,
   clearToken,
   getSessionRevision,
   scannerHeaders,
@@ -165,15 +167,34 @@ export default function Home() {
   const notify = (message: string) => setToast(message);
   const [storageConfigured, setStorageConfigured] = useState<boolean | null>(null);
   const [scannerError, setScannerError] = useState("");
+  const [restoringSession, setRestoringSession] = useState(true);
   const demo = false;
   const role = user?.role;
   const canEncode = role === "ADMIN" || role === "ENCODER";
   const canReview = role === "ADMIN" || role === "REVIEWER";
   useEffect(() => {
+    let active = true;
+    let initialSettings = defaultSettings;
     try {
       const saved = localStorage.getItem("folio-settings");
-      if (saved) setSettings({ ...defaultSettings, ...JSON.parse(saved) });
+      if (saved) initialSettings = { ...defaultSettings, ...JSON.parse(saved) };
     } catch {}
+    setSettings(initialSettings);
+    void (async () => {
+      try {
+        const lastActivity = Number(sessionStorage.getItem("folio-last-activity"));
+        if (lastActivity && Date.now() - lastActivity >= 15 * 60 * 1000) return;
+        const data = await restoreSession(initialSettings.apiUrl);
+        if (!active) return;
+        setUser(data.user);
+        try { await refresh(initialSettings.apiUrl); }
+        catch { if (active) notify("Signed in. Use Refresh to retry loading document data."); }
+      } catch (error) {
+        if (active && !(error instanceof ApiError && error.status === 401))
+          setAuthError("Could not restore your session. Check the API connection and reload, or sign in again.");
+      } finally { if (active) setRestoringSession(false); }
+    })();
+    return () => { active = false; };
   }, []);
   useEffect(() => {
     if (!toast) return;
@@ -184,6 +205,7 @@ export default function Home() {
     if (!user) return;
     let timeout: ReturnType<typeof setTimeout>;
     const reset = () => {
+      try { sessionStorage.setItem("folio-last-activity", String(Date.now())); } catch {}
       clearTimeout(timeout);
       timeout = setTimeout(
         () => {
@@ -300,14 +322,14 @@ export default function Home() {
         notify(`Audit event could not be recorded: ${e.message}`),
       );
   };
-  async function refresh() {
+  async function refresh(apiUrl = settings.apiUrl) {
     try {
       const [documents, logs, dashboard, health, types] = await Promise.all([
-        request(settings.apiUrl, "/documents"),
-        request(settings.apiUrl, "/logs"),
-        request(settings.apiUrl, "/dashboard"),
-        request(settings.apiUrl, "/health", {}, false),
-        request(settings.apiUrl, "/document-types"),
+        request(apiUrl, "/documents"),
+        request(apiUrl, "/logs"),
+        request(apiUrl, "/dashboard"),
+        request(apiUrl, "/health", {}, false),
+        request(apiUrl, "/document-types"),
       ]);
       setStorageConfigured(health.storageConfigured === false ? false : true);
       setDocs(documents);
@@ -1139,6 +1161,8 @@ export default function Home() {
       </div>
     );
   }
+  if (restoringSession)
+    return <main className="auth-page"><section className="auth-card" role="status">Restoring your session…</section></main>;
   if (!user)
     return (
       <LoginScreen

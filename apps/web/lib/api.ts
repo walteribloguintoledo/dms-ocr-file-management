@@ -7,6 +7,17 @@ export class ApiError extends Error {
   constructor(message: string, public readonly status: number) { super(message); }
 }
 export const getSessionRevision = () => sessionRevision;
+const restoring = new Map<string, Promise<any>>();
+export function restoreSession(base: string) {
+  const key = `${sessionRevision}:${base}`;
+  let pending = restoring.get(key);
+  if (!pending) {
+    pending = request(base, "/auth/refresh", { method: "POST" }, false)
+      .finally(() => restoring.delete(key));
+    restoring.set(key, pending);
+  }
+  return pending;
+}
 export function scannerHeaders(base: string, bridge: string) {
   const url = new URL(bridge);
   if (
