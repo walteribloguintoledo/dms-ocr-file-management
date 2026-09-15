@@ -3,6 +3,9 @@ let accessToken = "",
 let refreshing: Promise<any> | null = null;
 let sessionController = new AbortController();
 let sessionRevision = 0;
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) { super(message); }
+}
 export const getSessionRevision = () => sessionRevision;
 export function scannerHeaders(base: string, bridge: string) {
   const url = new URL(bridge);
@@ -72,9 +75,13 @@ export async function request(
     try {
       await refreshing;
     } catch (error) {
-      clearToken();
-      if (typeof window !== "undefined")
-        window.dispatchEvent(new Event("dms-session-expired"));
+      // Only an explicit authentication rejection ends the session. Offline,
+      // timeout and server errors can be retried without discarding credentials.
+      if (!scope.signal.aborted && error instanceof ApiError && error.status === 401) {
+        clearToken();
+        if (typeof window !== "undefined")
+          window.dispatchEvent(new Event("dms-session-expired"));
+      }
       throw error;
     }
     return request(base, path, options, false);
@@ -92,10 +99,11 @@ export async function request(
       window.dispatchEvent(new Event("dms-session-expired"));
   }
   if (!response.ok)
-    throw new Error(
+    throw new ApiError(
       Array.isArray(data.message)
         ? data.message.join(", ")
         : data.message || `Request failed (${response.status})`,
+      response.status,
     );
   if (data.accessToken) {
     accessToken = data.accessToken;

@@ -1,6 +1,22 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { clearToken, request, scannerHeaders } from "../apps/web/lib/api";
+test("temporary refresh failures preserve the session, but rejected credentials clear it", async () => {
+  const original = globalThis.fetch;
+  try {
+    for (const status of [503, 401]) {
+      clearToken();
+      globalThis.fetch = async (url) => {
+        if (String(url).endsWith("/auth/login")) return Response.json({accessToken:"test-token"});
+        return Response.json({message:"Unavailable"}, {status:String(url).endsWith("/auth/refresh") ? status : 401});
+      };
+      await request("https://dms.example/api", "/auth/login", {method:"POST"});
+      await assert.rejects(request("https://dms.example/api", "/documents"));
+      if (status === 503) assert.equal(scannerHeaders("https://dms.example/api", "https://localhost:17483").Authorization, "Bearer test-token");
+      else assert.throws(() => scannerHeaders("https://dms.example/api", "https://localhost:17483"), /Sign in/);
+    }
+  } finally { globalThis.fetch=original; clearToken(); }
+});
 test("logout never attempts token refresh when a session is already expired", async () => {
   const original = globalThis.fetch;
   const calls: string[] = [];

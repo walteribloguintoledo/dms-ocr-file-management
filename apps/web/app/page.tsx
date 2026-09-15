@@ -196,10 +196,14 @@ export default function Home() {
     reset();
     window.addEventListener("pointerdown", reset);
     window.addEventListener("keydown", reset);
+    window.addEventListener("pointermove", reset, { passive: true });
+    window.addEventListener("scroll", reset, { passive: true, capture: true });
     return () => {
       clearTimeout(timeout);
       window.removeEventListener("pointerdown", reset);
       window.removeEventListener("keydown", reset);
+      window.removeEventListener("pointermove", reset);
+      window.removeEventListener("scroll", reset, true);
     };
   }, [user]);
   useEffect(
