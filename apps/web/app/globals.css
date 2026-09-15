@@ -40,6 +40,10 @@
   font-size: 16px;
   padding: 12px;
 }
+.password-field { position: relative; display: block; }
+.auth-card .password-field input { width: 100%; padding-right: 52px; }
+.auth-card .password-toggle { position: absolute; right: 5px; top: 50%; transform: translateY(-50%); width: 40px; height: 40px; padding: 0; display: grid; place-items: center; border: 0; background: transparent; color: var(--green); }
+.auth-card .password-toggle:focus-visible { outline: 2px solid var(--green); outline-offset: -2px; }
 .auth-card details {
   font-size: 14px;
   color: #66746e;

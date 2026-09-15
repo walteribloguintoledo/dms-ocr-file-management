@@ -111,7 +111,9 @@ export async function request(
   }
   if (!response.ok)
     throw new ApiError(
-      Array.isArray(data.message)
+      response.status === 429 && path === "/auth/login"
+        ? "Login attempt limit reached (3 attempts). Wait 15 minutes before trying again."
+        : Array.isArray(data.message)
         ? data.message.join(", ")
         : data.message || `Request failed (${response.status})`,
       response.status,

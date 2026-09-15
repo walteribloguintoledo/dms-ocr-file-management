@@ -14,5 +14,10 @@ for(let i=0;i<2;i++){const logout=await fetch(base+'/auth/logout',{method:'POST'
 assert.equal((await fetch(base+'/auth/refresh',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:'{}'})).status,401);
 assert.equal((await fetch(base+'/auth/login',{method:'POST',headers:{Origin:'https://untrusted.example','Content-Type':'application/json'},body:'{}'})).status,403);
 assert.equal((await fetch(base+'/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({email:'invalid',password:'x',role:'ADMIN'})})).status,400);
-console.log('PASS: API startup, public health, protected routes, refresh rejection, origin enforcement, and login validation. No database or AWS service was contacted.');
+for(let attempt=2;attempt<=4;attempt++){
+const result=await fetch(base+'/auth/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({email:'invalid',password:'x'})});
+assert.equal(result.status,attempt<=3?400:429,`Login attempt ${attempt}`);
+if(attempt===4) assert.ok(Number(result.headers.get('retry-after'))>0);
+}
+console.log('PASS: API startup, public health, protected routes, refresh rejection, origin enforcement, login validation, and fourth login attempt blocked. No database or AWS service was contacted.');
 }catch(e){console.error(e);process.exitCode=1}finally{child.kill()}})();

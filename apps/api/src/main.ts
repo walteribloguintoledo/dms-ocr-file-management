@@ -171,7 +171,7 @@ class AuthController {
   @Public()
   @Post("login")
   @HttpCode(200)
-  @Throttle({ default: { limit: 5, ttl: 60000 } })
+  @Throttle({ default: { limit: 3, ttl: 15 * 60 * 1000 } })
   async login(
     @Body() body: LoginDto,
     @Res({ passthrough: true }) res: Response,
