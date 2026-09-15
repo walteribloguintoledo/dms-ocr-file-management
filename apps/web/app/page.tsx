@@ -1178,7 +1178,7 @@ export default function Home() {
         <div className="brand">
           <span className="brand-mark">f</span>
           <div>
-            folio<small>DOCUMENT MANAGEMENT</small>
+            Folio360<small>Intelligent Document Management</small>
           </div>
         </div>
         <div className="nav-label">WORKSPACE</div>
@@ -2481,9 +2481,9 @@ export default function Home() {
           {view === "About" && (
             <section className="panel about">
               <div className="brand" style={{ padding: 0 }}>
-                <span className="brand-mark">f</span>folio
+                <span className="brand-mark" aria-hidden="true">f</span>Folio360
               </div>
-              <h2>Document Management System</h2>
+              <h2>Intelligent Document Management</h2>
               <p>
                 Capture paper records, organize employee documents, and follow
                 each document from upload through review, approval, and archive.

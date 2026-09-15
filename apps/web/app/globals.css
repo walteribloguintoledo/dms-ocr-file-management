@@ -17,6 +17,8 @@
 }
 .auth-card .brand {
   padding: 0 0 30px;
+  justify-content: center;
+  text-align: center;
 }
 .auth-card h1 {
   font-size: 25px;
@@ -195,6 +197,7 @@ small {
   letter-spacing: -1.5px;
 }
 .brand-mark {
+  flex-shrink: 0;
   display: grid;
   place-items: center;
   width: 34px;
@@ -207,9 +210,10 @@ small {
 }
 .brand small {
   font: 500 10px "DM Sans";
-  letter-spacing: 2px;
+  letter-spacing: 0;
+  line-height: 1.4;
   display: block;
-  margin-top: -3px;
+  margin-top: 3px;
 }
 .nav-label {
   font-size: 10px;

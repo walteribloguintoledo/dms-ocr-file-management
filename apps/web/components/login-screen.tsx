@@ -16,7 +16,7 @@ export function LoginScreen(p: Props) {
     <main className="auth-page">
       <section className="auth-card" aria-labelledby="login-title">
         <div className="brand">
-          <span className="brand-mark">f</span>folio
+          <div>Folio360<small>Intelligent Document Management</small></div>
         </div>
         <h1 id="login-title">Sign in to your workspace</h1>
         <p className="muted">Use the account created by your administrator.</p>

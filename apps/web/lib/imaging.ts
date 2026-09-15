@@ -188,7 +188,7 @@ export async function generatePdf(pages: Page[], size: string) {
       page.pushOperators(popGraphicsState());
     }
   }
-  pdf.setProducer("Folio DMS");
+  pdf.setProducer("Folio360 - Intelligent Document Management");
   pdf.setCreationDate(new Date());
   const bytes = await pdf.save();
   const buffer = new Uint8Array(bytes).buffer;
