@@ -2288,6 +2288,28 @@ export default function Home() {
               </div>
               {role === "ADMIN" && (
                 <section className="panel form-panel" style={{ marginTop: 22 }}>
+                  <h2>Document types</h2>
+                  <p className="muted">Manage the choices available in Document details for all users.</p>
+                  <form className="form-grid" onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (!newDocumentType.trim() || savingDocumentType) return;
+                    setSavingDocumentType(true);
+                    try {
+                      await request(settings.apiUrl, "/document-types", {method: "POST", body: JSON.stringify({name: newDocumentType.trim()})});
+                      setDocumentTypes(await request(settings.apiUrl, "/document-types"));
+                      setNewDocumentType("");
+                      notify("Document type added.");
+                    } catch (error: any) { notify(error.message); }
+                    finally { setSavingDocumentType(false); }
+                  }}>
+                    <label>New document type<input value={newDocumentType} maxLength={100} required onChange={(event) => setNewDocumentType(event.target.value)} placeholder="e.g. Employment Certificate" /></label>
+                    <button className="primary" type="submit" disabled={savingDocumentType || !newDocumentType.trim()}>{savingDocumentType ? "Adding…" : "Add document type"}</button>
+                  </form>
+                  <ul>{documentTypes.map((type) => <li key={type.id}>{type.name}</li>)}</ul>
+                </section>
+              )}
+              {role === "ADMIN" && (
+                <section className="panel form-panel" style={{ marginTop: 22 }}>
                   <div className="panel-head" style={{ padding: "0 0 20px" }}>
                     <h2>User management</h2>
                     <button
