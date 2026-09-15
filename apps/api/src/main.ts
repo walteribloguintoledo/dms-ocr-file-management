@@ -735,6 +735,20 @@ class WorkspaceController {
       source: "client-reported",
     });
   }
+  @Get("document-types") documentTypes() {
+    return prisma.documentType.findMany({ orderBy: { name: "asc" } });
+  }
+  @Post("document-types") @Roles("ADMIN") async createDocumentType(@Body() body: CategoryDto) {
+    const name = body.name.trim().replace(/\s+/g, " ");
+    if (!name) throw new BadRequestException("Enter a document type name.");
+    try {
+      return await prisma.documentType.create({ data: { name } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002")
+        throw new ConflictException("This document type already exists.");
+      throw error;
+    }
+  }
   @Get("categories") categories() {
     return prisma.category.findMany({ orderBy: { name: "asc" } });
   }

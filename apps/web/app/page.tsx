@@ -102,7 +102,7 @@ const emptyMeta = {
   description: "",
   employeeId: "",
   employeeName: "",
-  documentType: "Employee record",
+  documentType: "201 Files",
   documentNumber: "",
   department: "Human Resources",
   confidentiality: "Internal",
@@ -141,6 +141,9 @@ export default function Home() {
     [logQuery, setLogQuery] = useState(""),
     [stats, setStats] = useState<any>(null),
     [users, setUsers] = useState<any[]>([]),
+    [documentTypes, setDocumentTypes] = useState<{id: string; name: string}[]>([]),
+    [newDocumentType, setNewDocumentType] = useState(""),
+    [savingDocumentType, setSavingDocumentType] = useState(false),
     [newUser, setNewUser] = useState({
       name: "",
       email: "",
@@ -295,14 +298,16 @@ export default function Home() {
   };
   async function refresh() {
     try {
-      const [documents, logs, dashboard, health] = await Promise.all([
+      const [documents, logs, dashboard, health, types] = await Promise.all([
         request(settings.apiUrl, "/documents"),
         request(settings.apiUrl, "/logs"),
         request(settings.apiUrl, "/dashboard"),
         request(settings.apiUrl, "/health", {}, false),
+        request(settings.apiUrl, "/document-types"),
       ]);
       setStorageConfigured(health.storageConfigured === false ? false : true);
       setDocs(documents);
+      setDocumentTypes(types);
       setAudits(logs);
       setStats(dashboard);
       setConnected(true);
@@ -2685,8 +2690,6 @@ export default function Home() {
                 {[
                   ["title", "Title"],
                   ["documentNumber", "Document number (automatic if empty)"],
-                  ["employeeId", "Employee ID"],
-                  ["employeeName", "Employee name"],
                   ["documentType", "Document type"],
                   ["documentDate", "Document date"],
                   ["department", "Department"],
@@ -2695,7 +2698,14 @@ export default function Home() {
                 ].map(([key, label]) => (
                   <label key={key}>
                     {label}
-                    {key === "confidentiality" ? (
+                    {key === "documentType" ? (
+                      <select value={meta.documentType} onChange={(e) => setMeta({...meta, documentType: e.target.value})}>
+                        {!documentTypes.some((type) => type.name === meta.documentType) && (
+                          <option value={meta.documentType}>{meta.documentType || "Select document type"}</option>
+                        )}
+                        {documentTypes.map((type) => <option key={type.id} value={type.name}>{type.name}</option>)}
+                      </select>
+                    ) : key === "confidentiality" ? (
                       <select
                         value={meta.confidentiality}
                         onChange={(e) =>

@@ -40,6 +40,11 @@ model RefreshSession {
   createdAt DateTime @default(now())
   @@index([userId])
 }
+model DocumentType {
+  id String @id @default(uuid())
+  name String @unique
+}
+
 model Category {
   id String @id @default(uuid())
   name String @unique
