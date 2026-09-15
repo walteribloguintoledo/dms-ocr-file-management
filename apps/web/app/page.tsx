@@ -48,6 +48,7 @@ import {
   Role,
 } from "../lib/types";
 import { LoginScreen } from "../components/login-screen";
+import { CatalogSelect } from "../components/catalog-select";
 import {
   request,
   restoreSession,
@@ -144,6 +145,7 @@ export default function Home() {
     [stats, setStats] = useState<any>(null),
     [users, setUsers] = useState<any[]>([]),
     [documentTypes, setDocumentTypes] = useState<{id: string; name: string}[]>([]),
+    [departments, setDepartments] = useState<string[]>([]),
     [newDocumentType, setNewDocumentType] = useState(""),
     [savingDocumentType, setSavingDocumentType] = useState(false),
     [newUser, setNewUser] = useState({
@@ -324,16 +326,18 @@ export default function Home() {
   };
   async function refresh(apiUrl = settings.apiUrl) {
     try {
-      const [documents, logs, dashboard, health, types] = await Promise.all([
+      const [documents, logs, dashboard, health, types, departmentNames] = await Promise.all([
         request(apiUrl, "/documents"),
         request(apiUrl, "/logs"),
         request(apiUrl, "/dashboard"),
         request(apiUrl, "/health", {}, false),
         request(apiUrl, "/document-types"),
+        request(apiUrl, "/departments"),
       ]);
       setStorageConfigured(health.storageConfigured === false ? false : true);
       setDocs(documents);
       setDocumentTypes(types);
+      setDepartments(departmentNames);
       setAudits(logs);
       setStats(dashboard);
       setConnected(true);
@@ -2748,13 +2752,16 @@ export default function Home() {
                 ].map(([key, label]) => (
                   <label key={key}>
                     {label}
-                    {key === "documentType" ? (
-                      <select value={meta.documentType} onChange={(e) => setMeta({...meta, documentType: e.target.value})}>
-                        {!documentTypes.some((type) => type.name === meta.documentType) && (
-                          <option value={meta.documentType}>{meta.documentType || "Select document type"}</option>
-                        )}
-                        {documentTypes.map((type) => <option key={type.id} value={type.name}>{type.name}</option>)}
-                      </select>
+                    {key === "documentType" || key === "department" ? (
+                      <CatalogSelect label={label} value={meta[key]} items={key === "documentType" ? documentTypes.map(type => type.name) : departments} canAdd={role === "ADMIN"}
+                        onChange={value => setMeta(current => ({...current,[key]:value}))}
+                        onAdd={async name => {
+                          const endpoint = key === "documentType" ? "/document-types" : "/departments";
+                          const created = await request(settings.apiUrl, endpoint, {method:"POST",body:JSON.stringify({name})});
+                          const items = await request(settings.apiUrl, endpoint);
+                          if(key === "documentType") setDocumentTypes(items); else setDepartments(items);
+                          setMeta(current => ({...current,[key]:created.name}));
+                        }} />
                     ) : key === "confidentiality" ? (
                       <select
                         value={meta.confidentiality}

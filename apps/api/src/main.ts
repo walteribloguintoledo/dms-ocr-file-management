@@ -749,6 +749,17 @@ class WorkspaceController {
       throw error;
     }
   }
+  @Get("departments") async departments() {
+    const saved = await prisma.category.findMany({select:{name:true}});
+    return [...new Set(["Human Resources", "Executive", "Technical Department", "Software Department", "Sales Department", "Finance", "Operations", "Legal", ...saved.map(item => item.name)])].sort();
+  }
+  @Post("departments") @Roles("ADMIN") async createDepartment(@Body() body: CategoryDto) {
+    const name = body.name.trim().replace(/\s+/g, " ");
+    if (!name) throw new BadRequestException("Enter a department name.");
+    const existing = (await this.departments()).find(item => item.toLowerCase() === name.toLowerCase());
+    if (existing) throw new ConflictException("This department already exists.");
+    return prisma.category.upsert({where:{name},update:{},create:{name}});
+  }
   @Get("categories") categories() {
     return prisma.category.findMany({ orderBy: { name: "asc" } });
   }
