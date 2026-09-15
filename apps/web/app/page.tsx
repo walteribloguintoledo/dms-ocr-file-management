@@ -1102,10 +1102,10 @@ export default function Home() {
           <thead>
             <tr>
               <th>DOCUMENT NAME</th>
-              <th>EMPLOYEE</th>
+              <th>DEPARTMENT</th>
               <th>STATUS</th>
               <th>DATE ADDED</th>
-              <th aria-label="Actions" />
+              <th>ACTION</th>
             </tr>
           </thead>
           <tbody>
@@ -1129,12 +1129,7 @@ export default function Home() {
                   </div>
                 </td>
                 <td>
-                  {d.employeeName || "—"}
-                  <small
-                    style={{ display: "block", fontSize: 10, marginTop: 4 }}
-                  >
-                    {d.employeeId}
-                  </small>
+                  {d.metadata.department || "—"}
                 </td>
                 <td>
                   <span className={`badge ${d.status}`}>
@@ -1144,11 +1139,11 @@ export default function Home() {
                 <td className="muted">{date(d.createdAt)}</td>
                 <td>
                   <button
-                    className="icon text-button"
-                    aria-label={`Open ${d.title}`}
+                    className="document-view-button"
+                    aria-label={`View document: ${d.title}`}
                     onClick={() => void openDocument(d)}
                   >
-                    <ChevronRight size={15} />
+                    View document <ChevronRight size={16} aria-hidden="true" />
                   </button>
                 </td>
               </tr>
@@ -1654,7 +1649,7 @@ export default function Home() {
                   <Search size={15} />
                   <input
                     aria-label="Search documents"
-                    placeholder="Search title, employee, reference, OCR text…"
+                    placeholder="Search title, department, reference, OCR text…"
                     value={query}
                     onChange={(e) => setQuery(e.target.value)}
                   />
