@@ -9,5 +9,6 @@ test-results/
 apps/web/.next-dev/
 apps/web/public/pdf.worker.min.mjs
 .neon
+**/.amplify-hosting/
 scanner-bridge/certs/
 scanner-bridge/*.log
