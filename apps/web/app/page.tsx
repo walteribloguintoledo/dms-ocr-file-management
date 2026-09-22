@@ -136,6 +136,8 @@ export default function Home() {
     [zoom, setZoom] = useState(1),
     [ocrProgress, setOcrProgress] = useState(0),
     [ocrRunning, setOcrRunning] = useState(false),
+    [ocrStatus, setOcrStatus] = useState(""),
+    [ocrTextView, setOcrTextView] = useState("page"),
     [queue, setQueue] = useState<QueueItem[]>([]),
     [metadataOpen, setMetadataOpen] = useState(false),
     [meta, setMeta] = useState(emptyMeta),
@@ -541,21 +543,31 @@ export default function Home() {
     }
   }
   async function runOcr() {
-    if (!pages.length) return;
+    if (!pages.length || ocrRunning || !canEncode) return;
+    if (!/^[a-z]{3}(\+[a-z]{3})*$/.test(settings.language.trim())) {
+      notify("Enter a language code such as eng or eng+spa.");
+      return;
+    }
     setOcrRunning(true);
+    setOcrProgress(0);
+    setOcrStatus("Loading OCR engine and language data…");
     cancelOcr.current = false;
     const generation = ++ocrGeneration.current;
+    let ownedWorker: any;
     try {
       const { createWorker } = await import("tesseract.js");
       let current = 0;
-      const w = await createWorker(settings.language, 1, {
+      const w = await createWorker(settings.language.trim(), 1, {
         logger: (m: any) => {
+          if (cancelOcr.current || generation !== ocrGeneration.current) return;
           if (m.status === "recognizing text")
             setOcrProgress(
               Math.round(((current + m.progress) / pages.length) * 100),
             );
         },
       });
+      ownedWorker = w;
+      if (cancelOcr.current || generation !== ocrGeneration.current) return;
       worker.current = w;
       if (cancelOcr.current) {
         await w.terminate();
@@ -564,6 +576,7 @@ export default function Home() {
       for (let i = 0; i < pages.length; i++) {
         if (cancelOcr.current) break;
         current = i;
+        setOcrStatus(`Recognizing page ${i + 1} of ${pages.length}…`);
         const p = await rasterize(pages[i]);
         const { data } = await w.recognize(
           p.url,
@@ -585,22 +598,27 @@ export default function Home() {
         );
         setOcrProgress(Math.round(((i + 1) / pages.length) * 100));
       }
-      if (!cancelOcr.current) {
+      if (!cancelOcr.current && generation === ocrGeneration.current) {
+        setOcrStatus(`Completed ${pages.length} pages. Text is ready for the searchable PDF.`);
         log("OCR_COMPLETED", { pages: pages.length });
         notify("OCR completed for every page.");
       }
     } catch (e: any) {
-      if (!cancelOcr.current) notify(`OCR failed: ${e.message}`);
+      if (!cancelOcr.current && generation === ocrGeneration.current) {
+        setOcrStatus(`OCR failed: ${e.message}. Completed page text has been kept; retry when ready.`);
+        notify(`OCR failed: ${e.message}`);
+      }
     } finally {
-      await worker.current?.terminate().catch(() => {});
-      worker.current = null;
-      setOcrRunning(false);
+      await ownedWorker?.terminate().catch(() => {});
+      if (worker.current === ownedWorker) worker.current = null;
+      if (generation === ocrGeneration.current || cancelOcr.current) setOcrRunning(false);
     }
   }
   const stopOcr = () => {
     cancelOcr.current = true;
     ocrGeneration.current++;
-    void worker.current?.terminate();
+    void worker.current?.terminate().catch(() => {});
+    setOcrStatus("OCR cancelled. Completed page text has been kept.");
     notify("OCR cancelled. Completed page text has been kept.");
   };
   const currentPage = pages[pageIndex];
@@ -1203,7 +1221,7 @@ export default function Home() {
       />
       <aside className={`sidebar ${mobile ? "open" : ""}`}>
         <div className="brand">
-          <span className="brand-mark">f</span>
+          {/* <span className="brand-mark">f</span> */}
           <div>
             Folio360<small>Intelligent Document Management</small>
           </div>
@@ -1917,8 +1935,8 @@ export default function Home() {
                     />
                   </label>
                   <small>
-                    Use installed Tesseract language codes, for example eng or
-                    eng+spa.
+                    English: eng. Add languages with +, for example eng+spa.
+                    Language data downloads on first use; page images are processed in your browser.
                   </small>
                   <button
                     disabled={!pages.length || busy || !canEncode}
@@ -1935,10 +1953,17 @@ export default function Home() {
                       <small>{ocrProgress}% complete</small>
                     </>
                   )}
+                  <p role="status" aria-live="polite" className="muted">{ocrStatus}</p>
+                  <label>Text preview
+                    <select value={ocrTextView} onChange={e => setOcrTextView(e.target.value)}>
+                      <option value="page">Selected page</option>
+                      <option value="all">All pages in document order</option>
+                    </select>
+                  </label>
                   <textarea
                     aria-label="Extracted OCR text"
                     readOnly
-                    value={currentPage?.text || ""}
+                    value={ocrTextView === "all" ? pages.map((page, index) => `--- Page ${index + 1} ---\n${page.text}`).join("\n\n") : currentPage?.text || ""}
                     placeholder="Extracted page text will appear here."
                   />
                   <small>
