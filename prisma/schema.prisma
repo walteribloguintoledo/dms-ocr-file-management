@@ -48,7 +48,6 @@ model DocumentType {
 model Category {
   id String @id @default(uuid())
   name String @unique
-  documents Document[]
 }
 model Document {
   id String @id @default(uuid())
@@ -56,10 +55,6 @@ model Document {
   documentNumber String @unique @default(uuid())
   title String
   description String @default("")
-  categoryId String?
-  category Category? @relation(fields:[categoryId],references:[id])
-  employeeId String @default("")
-  employeeName String @default("")
   status DocumentStatus @default(UPLOADED)
   source String
   mimeType String
@@ -76,9 +71,7 @@ model Document {
   deletedAt DateTime?
   versions DocumentVersion[]
   audits AuditEvent[]
-  @@index([employeeId])
   @@index([status,createdAt])
-  @@index([categoryId])
 }
 model DocumentVersion {
   id String @id @default(uuid())

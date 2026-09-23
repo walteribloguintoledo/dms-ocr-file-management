@@ -5,9 +5,6 @@ export type Doc = {
   documentNumber: string;
   title: string;
   description: string;
-  categoryId?: string;
-  employeeId: string;
-  employeeName: string;
   status: Status;
   source: string;
   mimeType: string;

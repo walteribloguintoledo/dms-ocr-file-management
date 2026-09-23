@@ -77,8 +77,6 @@ export const demoDocuments: Doc[] = [
   id: `demo-${i}`,
   title: String(d[0]),
   documentNumber: String(d[1]),
-  employeeName: String(d[2]),
-  employeeId: String(d[3]),
   status: d[5] as Doc["status"],
   createdAt: date(Number(d[6])),
   updatedAt: date(Number(d[6])),

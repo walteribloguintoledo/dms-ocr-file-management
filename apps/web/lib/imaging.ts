@@ -1,6 +1,9 @@
 import { Page } from "./types";
+import {paperDimensions} from '../../../shared/paper-sizes.mjs';
 import {
   PDFDocument,
+  PDFName,
+  PDFNumber,
   StandardFonts,
   TextRenderingMode,
   pushGraphicsState,
@@ -134,14 +137,13 @@ export async function rasterize(
 export async function generatePdf(pages: Page[], size: string) {
   const pdf = await PDFDocument.create();
   const font = await pdf.embedFont(StandardFonts.Helvetica);
-  const dimensions: Record<string, [number, number]> = {
-    A4: [595.28, 841.89],
-    Letter: [612, 792],
-    Legal: [612, 1008],
-  };
+  const [widthMm,heightMm] = paperDimensions(size);
   for (const original of pages) {
     const p = original.rotation ? await rasterize(original) : original;
-    const page = pdf.addPage(dimensions[size] || dimensions.A4);
+    const widthPt = widthMm * 72 / 25.4, heightPt = heightMm * 72 / 25.4;
+    const userUnit = Math.max(1, Math.ceil(Math.max(widthPt, heightPt) / 14400));
+    const page = pdf.addPage([widthPt / userUnit, heightPt / userUnit]);
+    if (userUnit > 1) page.node.set(PDFName.of("UserUnit"), PDFNumber.of(userUnit));
     const image = p.url.startsWith("data:image/jpeg")
       ? await pdf.embedJpg(p.url)
       : await pdf.embedPng(p.url);

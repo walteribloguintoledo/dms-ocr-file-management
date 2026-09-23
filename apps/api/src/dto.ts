@@ -37,10 +37,7 @@ export class DocumentDto {
   @IsUUID() uploadId!: string;
   @IsString() @MinLength(1) @MaxLength(250) title!: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
-  @IsOptional() @IsString() @MaxLength(100) employeeId?: string;
-  @IsOptional() @IsString() @MaxLength(200) employeeName?: string;
   @IsOptional() @IsString() @MaxLength(100) documentNumber?: string;
-  @IsOptional() @IsUUID() categoryId?: string;
   @IsArray()
   @ArrayMaxSize(30)
   @IsString({ each: true })
@@ -56,8 +53,6 @@ export class PatchDto {
   status?: any;
   @IsOptional() @IsString() @MinLength(1) @MaxLength(250) title?: string;
   @IsOptional() @IsString() @MaxLength(5000) description?: string;
-  @IsOptional() @IsString() @MaxLength(100) employeeId?: string;
-  @IsOptional() @IsString() @MaxLength(200) employeeName?: string;
   @IsOptional() @IsObject() metadata?: Record<string, any>;
   @IsOptional()
   @IsArray()

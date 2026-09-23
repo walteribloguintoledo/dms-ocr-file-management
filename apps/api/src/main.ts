@@ -276,7 +276,6 @@ class DocumentController {
     @Req() req: any,
     @Query("q") q?: string,
     @Query("status") status?: string,
-    @Query("categoryId") categoryId?: string,
     @Query("from") from?: string,
     @Query("to") to?: string,
   ) {
@@ -285,8 +284,6 @@ class DocumentController {
       clauses.push({
         OR: [
           "title",
-          "employeeId",
-          "employeeName",
           "documentNumber",
           "ocrText",
         ].map((field) => ({ [field]: { contains: q, mode: "insensitive" } })),
@@ -296,7 +293,6 @@ class DocumentController {
         throw new BadRequestException("Invalid status.");
       clauses.push({ status: status as any });
     }
-    if (categoryId) clauses.push({ categoryId });
     if (from || to) {
       if ((from && isNaN(Date.parse(from))) || (to && isNaN(Date.parse(to))))
         throw new BadRequestException("Invalid date.");
@@ -480,9 +476,6 @@ class DocumentController {
                 title: body.title.trim(),
                 description: body.description,
                 documentNumber: body.documentNumber || undefined,
-                categoryId: body.categoryId,
-                employeeId: body.employeeId,
-                employeeName: body.employeeName,
                 source: body.source,
                 mimeType: upload.mimeType,
                 fileSize: upload.fileSize,

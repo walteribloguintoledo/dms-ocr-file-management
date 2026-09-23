@@ -48,6 +48,7 @@ import {
   Role,
 } from "../lib/types";
 import { LoginScreen } from "../components/login-screen";
+import { PaperSizeSelect } from "../components/paper-size-select";
 import { CatalogSelect } from "../components/catalog-select";
 import {
   request,
@@ -103,8 +104,6 @@ type QueueItem = {
 const emptyMeta = {
   title: "",
   description: "",
-  employeeId: "",
-  employeeName: "",
   documentType: "201 Files",
   documentNumber: "",
   department: "Human Resources",
@@ -171,6 +170,49 @@ export default function Home() {
   const notify = (message: string) => setToast(message);
   const [storageConfigured, setStorageConfigured] = useState<boolean | null>(null);
   const [scannerError, setScannerError] = useState("");
+  const [reviewingQueue, setReviewingQueue] = useState<string | null>(null);
+  const reviewBackup = useRef<{pages: Page[]; index: number} | null>(null);
+  async function reviewQueueItem(item: QueueItem) {
+    if (busy || ocrRunning || reviewingQueue || !canEncode) return;
+    setBusy(true);
+    const revision = getSessionRevision();
+    try {
+      const imported = await importPages(new File([item.file], item.metadata.originalName || "document.pdf", {type:item.file.type}));
+      if (revision !== getSessionRevision()) return;
+      if (!imported.length) throw new Error("No pages could be opened.");
+      reviewBackup.current = {pages, index:pageIndex};
+      setPages(imported); setPageIndex(0); setReviewingQueue(item.id);
+      setOcrProgress(0); setOcrStatus("");
+      go("Scan");
+    } catch (error: any) { notify(error.message); }
+    finally { setBusy(false); }
+  }
+  function closePageReview() {
+    setPages(reviewBackup.current?.pages || []);
+    setPageIndex(reviewBackup.current?.index || 0);
+    reviewBackup.current = null;
+    setReviewingQueue(null);
+    setOcrProgress(0); setOcrStatus("");
+    go("Upload Queue");
+  }
+  async function savePageReview() {
+    if (!reviewingQueue || !pages.length || busy || ocrRunning) return;
+    const item = queue.find(q => q.id === reviewingQueue);
+    if (!item) return;
+    setBusy(true);
+    const revision = getSessionRevision();
+    try {
+      const result = await generatePdf(pages, settings.pageSize);
+      if (revision !== getSessionRevision()) return;
+      if (result.blob.size > settings.maxFileMb * 1048576) throw new Error("Updated PDF exceeds the configured file-size limit.");
+      updateQueue(item.id, {file:result.blob, checksum:result.checksum, ocrText:result.ocrText,
+        sessionId:undefined, error:undefined, status:"Pending", progress:0, attempts:0,
+        metadata:{...item.metadata,originalName:`${item.title}.pdf`,pageCount:pages.length,pdfaValidated:false}});
+      closePageReview();
+      notify("Updated PDF saved to the queue. Review it before uploading.");
+    } catch (error: any) { notify(error.message); }
+    finally { setBusy(false); }
+  }
   const [restoringSession, setRestoringSession] = useState(true);
   const demo = false;
   const role = user?.role;
@@ -302,6 +344,7 @@ export default function Home() {
       setAudits([]);
       setPages([]);
       setQueue([]);
+    setReviewingQueue(null); reviewBackup.current = null;
       setUsers([]);
       setSelected(null);
       setStats(null);
@@ -416,6 +459,7 @@ export default function Home() {
     setAudits([]);
     setPages([]);
     setQueue([]);
+    setReviewingQueue(null); reviewBackup.current = null;
     localFiles.current.clear();
     setSelected(null);
     setStats(null);
@@ -684,6 +728,7 @@ export default function Home() {
     notify("Page cropped. Run OCR again for this page.");
   }
   async function makeDocument() {
+    if (reviewingQueue) { await savePageReview(); setMetadataOpen(false); return; }
     const operationSession = getSessionRevision();
 
     if (!meta.title.trim()) {
@@ -709,8 +754,6 @@ export default function Home() {
         const changes = {
           title: meta.title.trim(),
           description: meta.description,
-          employeeId: meta.employeeId,
-          employeeName: meta.employeeName,
           tags: meta.tags
             .split(",")
             .map((x) => x.trim())
@@ -881,6 +924,7 @@ export default function Home() {
   const updateQueue = (id: string, patch: Partial<QueueItem>) =>
     setQueue((old) => old.map((q) => (q.id === id ? { ...q, ...patch } : q)));
   async function upload(item: QueueItem) {
+    if (reviewingQueue === item.id) { notify("Save or cancel page review before uploading this document."); return; }
     const operationSession = getSessionRevision();
 
     if (queueBusy.current.has(item.id)) return;
@@ -902,8 +946,6 @@ export default function Home() {
             `DEMO-${String(docs.length + 1).padStart(5, "0")}`,
           title: item.title,
           description: item.metadata.description || "",
-          employeeId: item.metadata.employeeId || "",
-          employeeName: item.metadata.employeeName || "",
           status: "UPLOADED",
           source: item.metadata.source,
           mimeType: item.file.type,
@@ -999,8 +1041,6 @@ export default function Home() {
             uploadId: sessionId,
             title: item.title,
             description: item.metadata.description,
-            employeeId: item.metadata.employeeId,
-            employeeName: item.metadata.employeeName,
             documentNumber: item.metadata.documentNumber || undefined,
             tags: item.metadata.tags
               .split(",")
@@ -1115,8 +1155,6 @@ export default function Home() {
       [
         d.title,
         d.documentNumber,
-        d.employeeName,
-        d.employeeId,
         d.ocrText,
         d.metadata.documentType,
         d.metadata.documentDate,
@@ -1354,6 +1392,15 @@ export default function Home() {
         <div className="content">
           {storageConfigured === false && <div className="notice" role="status">File storage is not configured. You can manage users and prepare documents, but uploads and downloads require S3_BUCKET and AWS_REGION in the API environment. Restart the API, then use Settings → Test connection.</div>}
           {view === "Scan" && scannerError && <div className="notice" role="alert">{scannerError}</div>}
+          {reviewingQueue && <section className="panel form-panel" style={{marginBottom:20}}>
+            <h2>Review pages — {queue.find(q=>q.id===reviewingQueue)?.title}</h2>
+            <p>Use the page tools below to add, replace, remove, rotate, crop, or reorder pages. Changes are saved as a new PDF in this queue item. Run OCR again to include searchable text. PDF/A must be regenerated separately.</p>
+            <div className="actions">
+              {view !== "Scan" && <button onClick={()=>go("Scan")}>Return to page review</button>}
+              <button disabled={busy || ocrRunning} onClick={closePageReview}>Cancel review</button>
+              <button className="primary" disabled={busy || ocrRunning || !pages.length} onClick={()=>void savePageReview()}>Save reviewed PDF</button>
+            </div>
+          </section>}
           <div className="page-head">
             <div>
               <h1>
@@ -1778,16 +1825,7 @@ export default function Home() {
                   </label>
                   <label>
                     Page size
-                    <select
-                      value={settings.pageSize}
-                      onChange={(e) =>
-                        setSettings({ ...settings, pageSize: e.target.value })
-                      }
-                    >
-                      {["A4", "Letter", "Legal"].map((x) => (
-                        <option key={x}>{x}</option>
-                      ))}
-                    </select>
+                    <PaperSizeSelect value={settings.pageSize} onChange={pageSize => setSettings({...settings, pageSize})} />
                   </label>
                   <label className="switch" style={{ flexDirection: "row" }}>
                     Duplex scanning
@@ -2128,6 +2166,7 @@ export default function Home() {
                         >
                           Edit details
                         </button>
+                        <button disabled={!canEncode || busy || ocrRunning || !!reviewingQueue} onClick={()=>void reviewQueueItem(q)}>Review pages</button>
                         <button
                           disabled={
                             !canEncode || q.attempts >= settings.retryCount + 1
@@ -2139,6 +2178,7 @@ export default function Home() {
                         <button
                           className="icon danger"
                           aria-label={`Remove ${q.title}`}
+                          disabled={reviewingQueue === q.id}
                           onClick={() =>
                             setQueue((old) => old.filter((x) => x.id !== q.id))
                           }
@@ -2222,7 +2262,7 @@ export default function Home() {
                     ].map(([key, label, options]: any) => (
                       <label key={key}>
                         {label}
-                        <select
+                        {key === "pageSize" ? <PaperSizeSelect value={settings.pageSize} onChange={pageSize => setSettings({...settings, pageSize})} /> : <select
                           value={(settings as any)[key]}
                           onChange={(e) =>
                             setSettings({ ...settings, [key]: e.target.value })
@@ -2231,7 +2271,7 @@ export default function Home() {
                           {options.map((o: string) => (
                             <option key={o}>{o}</option>
                           ))}
-                        </select>
+                        </select>}
                       </label>
                     ))}
                   </div>
@@ -2621,10 +2661,6 @@ export default function Home() {
               </span>
               <div className="details-grid">
                 {[
-                  [
-                    "Employee",
-                    `${selected.employeeName || "—"} ${selected.employeeId}`,
-                  ],
                   ["Document type", selected.metadata.documentType || "—"],
                   ["Department", selected.metadata.department || "—"],
                   [
@@ -2660,8 +2696,6 @@ export default function Home() {
                         ...selected.metadata,
                         title: selected.title,
                         description: selected.description,
-                        employeeId: selected.employeeId,
-                        employeeName: selected.employeeName,
                         documentNumber: selected.documentNumber,
                         tags: selected.tags.join(", "),
                       });

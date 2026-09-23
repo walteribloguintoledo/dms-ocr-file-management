@@ -1,4 +1,5 @@
 import https from "node:https";
+import {scannerPaperSize} from '../shared/paper-sizes.mjs';
 import {
   readFile,
   mkdir,
@@ -154,7 +155,6 @@ const server = https.createServer(
         const options = JSON.parse((await body(req)).toString());
         if (
           ![150, 200, 300, 600].includes(options.dpi) ||
-          !["A4", "Letter", "Legal"].includes(options.pageSize) ||
           !["Color", "Grayscale", "Black and white"].includes(options.color) ||
           typeof options.duplex !== "boolean"
         )
@@ -173,7 +173,7 @@ const server = https.createServer(
           "--dpi",
           String(options.dpi),
           "--pagesize",
-          options.pageSize.toLowerCase(),
+          scannerPaperSize(options.pageSize),
           "--bitdepth",
           { Color: "color", Grayscale: "gray", "Black and white": "bw" }[
             options.color
