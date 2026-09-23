@@ -177,6 +177,23 @@ export default function Home() {
   const canEncode = role === "ADMIN" || role === "ENCODER";
   const canReview = role === "ADMIN" || role === "REVIEWER";
   useEffect(() => {
+    if (!metadataOpen || !user) return;
+    let active = true;
+    const revision = getSessionRevision();
+    void Promise.all([
+      request(settings.apiUrl, "/document-types"),
+      request(settings.apiUrl, "/departments"),
+    ]).then(([types, names]) => {
+      if (!active || revision !== getSessionRevision()) return;
+      setDocumentTypes(types);
+      setDepartments(names);
+    }).catch(() => {
+      if (active && revision === getSessionRevision())
+        notify("Could not refresh dropdown choices. Close Document details and reopen to retry.");
+    });
+    return () => { active = false; };
+  }, [metadataOpen, user, settings.apiUrl]);
+  useEffect(() => {
     let active = true;
     let initialSettings = defaultSettings;
     try {
@@ -1310,6 +1327,10 @@ export default function Home() {
             <strong>{view}</strong>
           </div>
           <div className="top-actions">
+            <button type="button" onClick={() => void logout()} aria-label="Sign out of Folio360">
+              <LogOut size={16} aria-hidden="true" />
+              Sign out
+            </button>
             <span className="mode">
               {demo
                 ? "DEMO WORKSPACE"

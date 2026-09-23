@@ -22,8 +22,11 @@ export function CatalogSelect({label, value, items, canAdd, onChange, onAdd}: {
     }}>
       {!items.includes(value) && <option value={value}>{value || `Select ${label.toLowerCase()}`}</option>}
       {items.map(item => <option key={item} value={item}>{item}</option>)}
-      {canAdd && <option value="__add_item__">+ Add item…</option>}
+      <option value="__add_item__" disabled={!canAdd}>{canAdd ? "+ Add item…" : "Add item — administrator only"}</option>
     </select>
+    {!adding && (canAdd
+      ? <button type="button" className="text-button" style={{marginTop:6,justifySelf:"start"}} onClick={() => {setAdding(true);setError("");}}>+ Add item</button>
+      : <small>Only an administrator can add new choices.</small>)}
     {adding && canAdd && <span style={{display:"grid",gap:8,marginTop:8}}>
       <input aria-label={`New ${label.toLowerCase()}`} autoFocus maxLength={100} value={name} disabled={busy} placeholder={`New ${label.toLowerCase()}`} onChange={e => setName(e.target.value)} onKeyDown={e => { if(e.key === "Enter") {e.preventDefault(); void save();} }} />
       <span style={{display:"flex",gap:8}}>
