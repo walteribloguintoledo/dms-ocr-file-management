@@ -1,6 +1,5 @@
 let accessToken = "",
   tokenBase = "";
-let refreshing: Promise<any> | null = null;
 let sessionController = new AbortController();
 let sessionRevision = 0;
 export class ApiError extends Error {
@@ -38,6 +37,13 @@ export function clearToken() {
   accessToken = "";
   tokenBase = "";
 }
+export function localApiUrl(base:string, pageHostname:string):string {
+  const url=new URL(base);
+  const local=['localhost','127.0.0.1'];
+  if(url.protocol==='http:' && local.includes(url.hostname) && local.includes(pageHostname))
+    url.hostname=pageHostname;
+  return url.toString().replace(/\/$/,'');
+}
 export async function request(
   base: string,
   path: string,
@@ -45,13 +51,13 @@ export async function request(
   retry = true,
 ): Promise<any> {
   const scope = sessionController;
-  const url = new URL(base);
+  const url = new URL(typeof window !== 'undefined' ? localApiUrl(base,window.location.hostname) : base);
   if (
     url.protocol !== "https:" &&
     !["localhost", "127.0.0.1"].includes(url.hostname)
   )
     throw new Error("The DMS API must use HTTPS.");
-  const response = await fetch(base.replace(/\/$/, "") + path, {
+  const response = await fetch(url.toString().replace(/\/$/, "") + path, {
     ...options,
     signal: AbortSignal.any([
       scope.signal,
@@ -74,17 +80,8 @@ export async function request(
     path !== "/auth/refresh" &&
     path !== "/auth/logout"
   ) {
-    if (!refreshing)
-      refreshing = request(
-        base,
-        "/auth/refresh",
-        { method: "POST" },
-        false,
-      ).finally(() => {
-        refreshing = null;
-      });
     try {
-      await refreshing;
+      await restoreSession(base);
     } catch (error) {
       // Only an explicit authentication rejection ends the session. Offline,
       // timeout and server errors can be retried without discarding credentials.

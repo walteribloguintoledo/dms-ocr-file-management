@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { clearToken, request, scannerHeaders, restoreSession } from "../apps/web/lib/api";
+import { clearToken, request, scannerHeaders, restoreSession, localApiUrl } from "../apps/web/lib/api";
 test("page-load restoration shares one refresh and restores the access token", async () => {
   const original = globalThis.fetch;
   let calls = 0;
@@ -94,4 +94,33 @@ test("a late response cannot restore credentials after logout", async () => {
     globalThis.fetch = original;
     clearToken();
   }
+});
+
+test("page restoration and expired API requests share the same refresh", async () => {
+  const original=globalThis.fetch;
+  let refreshCalls=0;
+  let finish!: (value:Response)=>void;
+  let documentCalls=0;
+  globalThis.fetch=async(url)=>{
+    if(String(url).endsWith('/auth/refresh')){refreshCalls++;return new Promise<Response>(resolve=>{finish=resolve;});}
+    documentCalls++;
+    return documentCalls===1?Response.json({}, {status:401}):Response.json([]);
+  };
+  try {
+    clearToken();
+    const restoring=restoreSession('https://dms.example/api');
+    const documents=request('https://dms.example/api','/documents');
+    await new Promise(resolve=>setTimeout(resolve,0));
+    assert.equal(refreshCalls,1);
+    finish(Response.json({accessToken:'shared-token'}));
+    await Promise.all([restoring,documents]);
+    assert.equal(documentCalls,2);
+  } finally {globalThis.fetch=original;clearToken();}
+});
+
+test('local API cookies use the page hostname without altering remote APIs',()=>{
+ assert.equal(localApiUrl('http://127.0.0.1:4000/api','localhost'),'http://localhost:4000/api');
+ assert.equal(localApiUrl('http://localhost:4000/api','127.0.0.1'),'http://127.0.0.1:4000/api');
+ assert.equal(localApiUrl('https://api.example.com/api','localhost'),'https://api.example.com/api');
+ assert.equal(localApiUrl('http://127.0.0.1:4000/api','folio.example.com'),'http://127.0.0.1:4000/api');
 });

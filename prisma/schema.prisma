@@ -41,11 +41,13 @@ model RefreshSession {
   @@index([userId])
 }
 model DocumentType {
+  enabled Boolean @default(true)
   id String @id @default(uuid())
   name String @unique
 }
 
 model Category {
+  enabled Boolean @default(true)
   id String @id @default(uuid())
   name String @unique
 }

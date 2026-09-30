@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { createWorker } from "tesseract.js";
 import {
   LayoutDashboard,
   ScanLine,
@@ -48,6 +49,11 @@ import {
   Role,
 } from "../lib/types";
 import { LoginScreen } from "../components/login-screen";
+import { ScanInvoiceReport } from "../components/scan-invoice-report";
+import { CatalogSettings } from "../components/catalog-settings";
+import { UserList } from "../components/user-list";
+import { UserMenu } from "../components/user-menu";
+import { InvoiceReports } from "../components/invoice-reports";
 import { PaperSizeSelect } from "../components/paper-size-select";
 import { CatalogSelect } from "../components/catalog-select";
 import {
@@ -62,7 +68,9 @@ import { importPages, rasterize, generatePdf } from "../lib/imaging";
 const navigation = [
   ["Dashboard", LayoutDashboard],
   ["Scan", ScanLine],
+  ["Scan Invoices", FileText],
   ["Documents", Files],
+  ["Reports", FileText],
   ["Upload Queue", UploadCloud],
   ["Settings", SettingsIcon],
   ["Logs", ScrollText],
@@ -112,6 +120,7 @@ const emptyMeta = {
   tags: "",
 };
 export default function Home() {
+  const [reportsOpen, setReportsOpen] = useState(false);
   const [view, setView] = useState("Dashboard"),
     [mobile, setMobile] = useState(false),
     [settings, setSettings] = useState<Settings>(defaultSettings),
@@ -147,6 +156,8 @@ export default function Home() {
     [users, setUsers] = useState<any[]>([]),
     [documentTypes, setDocumentTypes] = useState<{id: string; name: string}[]>([]),
     [departments, setDepartments] = useState<string[]>([]),
+    [newDepartment, setNewDepartment] = useState(""),
+    [savingDepartment, setSavingDepartment] = useState(false),
     [newDocumentType, setNewDocumentType] = useState(""),
     [savingDocumentType, setSavingDocumentType] = useState(false),
     [newUser, setNewUser] = useState({
@@ -245,8 +256,12 @@ export default function Home() {
     setSettings(initialSettings);
     void (async () => {
       try {
-        const lastActivity = Number(sessionStorage.getItem("folio-last-activity"));
-        if (lastActivity && Date.now() - lastActivity >= 15 * 60 * 1000) return;
+        let lastActivity = 0;
+        try { lastActivity = Number(sessionStorage.getItem("folio-last-activity")); } catch {}
+        if (lastActivity && Date.now() - lastActivity >= 15 * 60 * 1000) {
+          if (active) setAuthError("Your session ended after 15 minutes of inactivity. Please sign in again.");
+          return;
+        }
         const data = await restoreSession(initialSettings.apiUrl);
         if (!active) return;
         setUser(data.user);
@@ -362,7 +377,7 @@ export default function Home() {
     return () => window.removeEventListener("dms-session-expired", expire);
   }, []);
   const go = (name: string) => {
-    if (["Scan", "Upload Queue"].includes(name) && !canEncode) return;
+    if (["Scan", "Scan Invoices", "Upload Queue"].includes(name) && !canEncode) return;
     setView(name);
     setMobile(false);
   };
@@ -482,7 +497,11 @@ export default function Home() {
       notify(e.message);
     }
   }
-  async function checkScanner() {
+  useEffect(() => {
+    if (user && canEncode && ["Scan", "Scan Invoices"].includes(view)) void checkScanner(true);
+  }, [user, view, settings.apiUrl, settings.bridgeUrl]);
+  async function checkScanner(quiet = false) {
+    const revision = getSessionRevision();
     setScannerError("");
     try {
       await request(settings.apiUrl, "/auth/scanner");
@@ -499,17 +518,19 @@ export default function Home() {
       if (!r.ok) { const error = await r.json().catch(() => ({})); throw new Error(error.message || "The scanner bridge rejected the request."); }
       const devices = await r.json();
       const found = devices.some((d: any) => d.name.includes("fi-7180"));
+      if (revision !== getSessionRevision()) return;
       setScanner(found);
-      notify(
+      if (!quiet) notify(
         found
           ? "Fujitsu fi-7180 detected."
           : "No fi-7180 was detected by the scanner bridge.",
       );
     } catch (e: any) {
+      if (revision !== getSessionRevision()) return;
       setScanner(false);
       const message = e instanceof TypeError || e.name === "TimeoutError" ? "Cannot reach the local scanner bridge. Install NAPS2, configure scanner-bridge/.env with a trusted HTTPS certificate, then run npm run scanner:bridge. You can still import exported files." : e.message;
       setScannerError(message);
-      notify(message);
+      if (!quiet) notify(message);
     }
   }
   async function importFiles(files: FileList | null, replace = false) {
@@ -538,7 +559,7 @@ export default function Home() {
       notify(
         `${retained.length} pages imported. ${additions.length - retained.length} blank pages automatically removed.`,
       );
-      go("Scan");
+      if(view !== "Scan Invoices") go("Scan");
     } catch (e: any) {
       notify(e.message);
     } finally {
@@ -616,7 +637,6 @@ export default function Home() {
     const generation = ++ocrGeneration.current;
     let ownedWorker: any;
     try {
-      const { createWorker } = await import("tesseract.js");
       let current = 0;
       const w = await createWorker(settings.language.trim(), 1, {
         logger: (m: any) => {
@@ -1285,9 +1305,20 @@ export default function Home() {
         <nav className="nav">
           {navigation
             .filter(
-              ([name]) => canEncode || !["Scan", "Upload Queue"].includes(name),
+              ([name]) => canEncode || !["Scan", "Scan Invoices", "Upload Queue"].includes(name),
             )
-            .map(([name, Icon], i) => (
+            .map(([name, Icon], i) => name === "Reports" ? (
+              <div key={name} className="reports-nav">
+                <button className={view === "Sales and Services Invoice Report" ? "active" : ""}
+                  aria-expanded={reportsOpen} aria-controls="reports-submenu" onClick={() => setReportsOpen(!reportsOpen)}>
+                  <Icon size={18} />Reports<ChevronRight size={14} style={{marginLeft:"auto",transform:reportsOpen?"rotate(90deg)":undefined}} />
+                </button>
+                {reportsOpen && <div id="reports-submenu">
+                  <button className={view === "Sales and Services Invoice Report" ? "active report-subitem" : "report-subitem"}
+                    onClick={() => go("Sales and Services Invoice Report")}>Sales and Services Invoice Report</button>
+                </div>}
+              </div>
+            ) : (
               <button
                 key={name}
                 className={view === name ? "active" : ""}
@@ -1365,10 +1396,6 @@ export default function Home() {
             <strong>{view}</strong>
           </div>
           <div className="top-actions">
-            <button type="button" onClick={() => void logout()} aria-label="Sign out of Folio360">
-              <LogOut size={16} aria-hidden="true" />
-              Sign out
-            </button>
             <span className="mode">
               {demo
                 ? "DEMO WORKSPACE"
@@ -1383,15 +1410,12 @@ export default function Home() {
             >
               <Info size={18} />
             </button>
-            <span className="avatar" style={{ width: 30, height: 30 }}>
-              {" "}
-              {user?.name[0] || "D"}{" "}
-            </span>
+            <UserMenu name={user?.name || "Demo user"} onSignOut={() => void logout()} />
           </div>
         </header>
         <div className="content">
           {storageConfigured === false && <div className="notice" role="status">File storage is not configured. You can manage users and prepare documents, but uploads and downloads require S3_BUCKET and AWS_REGION in the API environment. Restart the API, then use Settings → Test connection.</div>}
-          {view === "Scan" && scannerError && <div className="notice" role="alert">{scannerError}</div>}
+          {["Scan", "Scan Invoices"].includes(view) && scannerError && <div className="notice" role="alert">{scannerError}</div>}
           {reviewingQueue && <section className="panel form-panel" style={{marginBottom:20}}>
             <h2>Review pages — {queue.find(q=>q.id===reviewingQueue)?.title}</h2>
             <p>Use the page tools below to add, replace, remove, rotate, crop, or reorder pages. Changes are saved as a new PDF in this queue item. Run OCR again to include searchable text. PDF/A must be regenerated separately.</p>
@@ -1406,7 +1430,7 @@ export default function Home() {
               <h1>
                 {view === "Dashboard"
                   ? "Workspace overview"
-                  : view === "Scan"
+                  : ["Scan", "Scan Invoices"].includes(view)
                     ? "Scan workspace"
                     : view}
               </h1>
@@ -1425,6 +1449,7 @@ export default function Home() {
                         "Configure your workspace and scanning preferences.",
                       Logs: "A chronological record of document and workspace activity.",
                       About: "Your document lifecycle, connected.",
+                      "Sales and Services Invoice Report": "Review OCR invoice details and create printable Excel reports.",
                     } as any
                   )[view]
                 }
@@ -1772,7 +1797,8 @@ export default function Home() {
               </div>
             </section>
           )}
-          {view === "Scan" && (
+          {view === "Scan Invoices" && <ScanInvoiceReport pages={pages} disabled={busy || ocrRunning} />}
+          {["Scan", "Scan Invoices"].includes(view) && (
             <>
               {!scanner && (
                 <div className="notice">
@@ -2399,28 +2425,10 @@ export default function Home() {
                   </div>
                 </section>
               </div>
-              {role === "ADMIN" && (
-                <section className="panel form-panel" style={{ marginTop: 22 }}>
-                  <h2>Document types</h2>
-                  <p className="muted">Manage the choices available in Document details for all users.</p>
-                  <form className="form-grid" onSubmit={async (event) => {
-                    event.preventDefault();
-                    if (!newDocumentType.trim() || savingDocumentType) return;
-                    setSavingDocumentType(true);
-                    try {
-                      await request(settings.apiUrl, "/document-types", {method: "POST", body: JSON.stringify({name: newDocumentType.trim()})});
-                      setDocumentTypes(await request(settings.apiUrl, "/document-types"));
-                      setNewDocumentType("");
-                      notify("Document type added.");
-                    } catch (error: any) { notify(error.message); }
-                    finally { setSavingDocumentType(false); }
-                  }}>
-                    <label>New document type<input value={newDocumentType} maxLength={100} required onChange={(event) => setNewDocumentType(event.target.value)} placeholder="e.g. Employment Certificate" /></label>
-                    <button className="primary" type="submit" disabled={savingDocumentType || !newDocumentType.trim()}>{savingDocumentType ? "Adding…" : "Add document type"}</button>
-                  </form>
-                  <ul>{documentTypes.map((type) => <li key={type.id}>{type.name}</li>)}</ul>
-                </section>
-              )}
+              {role === "ADMIN" && <>
+                <CatalogSettings apiUrl={settings.apiUrl} kind="document-types" title="Document types" onChanged={async()=>setDocumentTypes(await request(settings.apiUrl,"/document-types"))} />
+                <CatalogSettings apiUrl={settings.apiUrl} kind="departments" title="Departments" onChanged={async()=>setDepartments(await request(settings.apiUrl,"/departments"))} />
+              </>}
               {role === "ADMIN" && (
                 <section className="panel form-panel" style={{ marginTop: 22 }}>
                   <div className="panel-head" style={{ padding: "0 0 20px" }}>
@@ -2433,7 +2441,7 @@ export default function Home() {
                           .catch((e) => notify(e.message))
                       }
                     >
-                      Load users
+                      Refresh users
                     </button>
                   </div>
                   {demo ? (
@@ -2505,31 +2513,7 @@ export default function Home() {
                           Create user
                         </button>
                       </div>
-                      {users.map((u) => (
-                        <div className="queue-item" key={u.id}>
-                          <strong>{u.name}</strong>
-                          <span>{u.email}</span>
-                          <select
-                            value={u.role}
-                            aria-label={`Role for ${u.name}`}
-                            onChange={(e) =>
-                              void request(settings.apiUrl, `/users/${u.id}`, {
-                                method: "PATCH",
-                                body: JSON.stringify({ role: e.target.value }),
-                              })
-                                .then(() => request(settings.apiUrl, "/users"))
-                                .then(setUsers)
-                                .catch((e) => notify(e.message))
-                            }
-                          >
-                            {["ADMIN", "ENCODER", "REVIEWER", "READ_ONLY"].map(
-                              (r) => (
-                                <option key={r}>{r}</option>
-                              ),
-                            )}
-                          </select>
-                        </div>
-                      ))}
+                      <UserList apiUrl={settings.apiUrl} revision={users} />
                     </>
                   )}
                 </section>
@@ -2591,6 +2575,7 @@ export default function Home() {
               </div>
             </section>
           )}
+          {view === "Sales and Services Invoice Report" && <InvoiceReports documents={docs} apiUrl={settings.apiUrl} canSave={canEncode} onSaved={updated=>setDocs(old=>old.map(doc=>doc.id===updated.id?updated:doc))} onOpen={doc=>void openDocument(doc)} />}
           {view === "About" && (
             <section className="panel about">
               <div className="brand" style={{ padding: 0 }}>

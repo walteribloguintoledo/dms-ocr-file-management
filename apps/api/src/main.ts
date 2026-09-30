@@ -50,7 +50,9 @@ import { json } from "express";
 import type { Response } from "express";
 import {
   CategoryDto,
+  CatalogUpdateDto,
   CreateUserDto,
+  SaveOcrDto,
   DocumentDto,
   LoginDto,
   LogDto,
@@ -600,6 +602,18 @@ class DocumentController {
       },
     });
   }
+  @Patch(":id/ocr") async saveOcr(@Req() req:any, @Param("id") id:string, @Body() body:SaveOcrDto) {
+    return prisma.$transaction(async tx=>{
+      const doc=await tx.document.findFirst({where:{id,deletedAt:null}});
+      if(!doc || !canRead(req.user.role,req.user.id,doc)) throw new NotFoundException();
+      if(!["ADMIN","ENCODER"].includes(req.user.role) || doc.status==='ARCHIVED')
+        throw new ForbiddenException("Document OCR cannot be edited.");
+      const result=await tx.document.updateMany({where:{id,ocrText:body.expectedText,updatedAt:doc.updatedAt},data:{ocrText:body.text,status:'UPLOADED'}});
+      if(result.count!==1) throw new BadRequestException("Document changed. Reload it before saving OCR again.");
+      await tx.auditEvent.create({data:{actorId:req.user.id,documentId:id,action:'DOCUMENT_OCR_UPDATED'}});
+      return tx.document.findUnique({where:{id}});
+    });
+  }
   @Patch(":id") async update(
     @Req() req: any,
     @Param("id") id: string,
@@ -729,7 +743,7 @@ class WorkspaceController {
     });
   }
   @Get("document-types") documentTypes() {
-    return prisma.documentType.findMany({ orderBy: { name: "asc" } });
+    return prisma.documentType.findMany({ where:{enabled:true}, orderBy: { name: "asc" } });
   }
   @Post("document-types") @Roles("ADMIN") async createDocumentType(@Body() body: CategoryDto) {
     const name = body.name.trim().replace(/\s+/g, " ");
@@ -743,16 +757,39 @@ class WorkspaceController {
     }
   }
   @Get("departments") async departments() {
-    const saved = await prisma.category.findMany({select:{name:true}});
-    return [...new Set(["Human Resources", "Executive", "Technical Department", "Software Department", "Sales Department", "Finance", "Operations", "Legal", ...saved.map(item => item.name)])].sort();
+    return (await prisma.category.findMany({where:{enabled:true},orderBy:{name:'asc'}})).map(item=>item.name);
   }
   @Post("departments") @Roles("ADMIN") async createDepartment(@Body() body: CategoryDto) {
-    const name = body.name.trim().replace(/\s+/g, " ");
-    if (!name) throw new BadRequestException("Enter a department name.");
-    const existing = (await this.departments()).find(item => item.toLowerCase() === name.toLowerCase());
-    if (existing) throw new ConflictException("This department already exists.");
-    return prisma.category.upsert({where:{name},update:{},create:{name}});
+    const name=body.name.trim().replace(/\s+/g,' ');
+    if(!name)throw new BadRequestException('Enter a department name.');
+    if(await prisma.category.findFirst({where:{name:{equals:name,mode:'insensitive'}}}))throw new ConflictException('This department already exists, possibly disabled.');
+    return prisma.category.create({data:{name}});
   }
+  @Get("catalogs/:kind") @Roles("ADMIN") async catalogs(@Param('kind') kind:string) {
+    if(kind==='departments')return prisma.category.findMany({orderBy:{name:'asc'}});
+    if(kind==='document-types')return prisma.documentType.findMany({orderBy:{name:'asc'}});
+    throw new NotFoundException();
+  }
+  @Patch("catalogs/:kind/:id") @Roles("ADMIN") async updateCatalog(@Req() req:any,@Param('kind') kind:string,@Param('id') id:string,@Body() body:CatalogUpdateDto) {
+    if(!['departments','document-types'].includes(kind))throw new NotFoundException();
+    const name=body.name.trim().replace(/\s+/g,' ');
+    if(!name)throw new BadRequestException('Enter a name.');
+    try {
+      return await prisma.$transaction(async tx=>{
+        const model=(kind==='departments'?tx.category:tx.documentType) as typeof tx.category;
+        const existing=await model.findUnique({where:{id}});
+        if(!existing)throw new NotFoundException();
+        if(await model.findFirst({where:{id:{not:id},name:{equals:name,mode:'insensitive'}}}))throw new ConflictException('This name already exists.');
+        const updated=await model.update({where:{id},data:{name,enabled:body.enabled}});
+        await tx.auditEvent.create({data:{actorId:req.user.id,action:'CATALOG_UPDATED',details:{kind,id,previousName:existing.name,name,enabled:body.enabled}}});
+        return updated;
+      },{isolationLevel:'Serializable'});
+    } catch(error) {
+      if(error instanceof Prisma.PrismaClientKnownRequestError && ['P2002','P2034'].includes(error.code))throw new ConflictException('The catalog changed or this name already exists. Refresh and try again.');
+      throw error;
+    }
+  }
+
   @Get("categories") categories() {
     return prisma.category.findMany({ orderBy: { name: "asc" } });
   }
@@ -794,11 +831,15 @@ class WorkspaceController {
     @Body() body: RoleDto,
   ) {
     if (id === req.user.id)
-      throw new BadRequestException("You cannot change your own role.");
+      throw new BadRequestException("Use another administrator to change your own account.");
+    if ((body.role === undefined && body.active === undefined && body.password === undefined) ||
+        body.role === null || body.active === null || body.password === null)
+      throw new BadRequestException("Provide a role, active status, or new password.");
+    const passwordHash = body.password !== undefined ? await hash(body.password, 12) : undefined;
     return prisma.$transaction(async (tx) => {
       const user = await tx.user.update({
         where: { id },
-        data: { role: body.role },
+        data: { role: body.role, active: body.active, passwordHash },
         select: { id: true, name: true, email: true, role: true },
       });
       await tx.refreshSession.updateMany({
@@ -808,8 +849,8 @@ class WorkspaceController {
       await tx.auditEvent.create({
         data: {
           actorId: req.user.id,
-          action: "USER_ROLE_CHANGED",
-          details: { userId: id, role: body.role },
+          action: "USER_UPDATED",
+          details: { userId: id, role: body.role, active: body.active, passwordReset: body.password !== undefined },
         },
       });
       return user;

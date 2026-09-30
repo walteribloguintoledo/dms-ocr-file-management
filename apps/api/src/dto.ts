@@ -1,6 +1,7 @@
 import {
   ArrayMaxSize,
   IsArray,
+  IsBoolean,
   IsEmail,
   IsIn,
   IsInt,
@@ -24,7 +25,9 @@ export class CreateUserDto extends LoginDto {
   @IsIn(["ADMIN", "ENCODER", "REVIEWER", "READ_ONLY"]) role!: any;
 }
 export class RoleDto {
-  @IsIn(["ADMIN", "ENCODER", "REVIEWER", "READ_ONLY"]) role!: any;
+  @IsOptional() @IsIn(["ADMIN", "ENCODER", "REVIEWER", "READ_ONLY"]) role?: any;
+  @IsOptional() @IsBoolean() active?: boolean;
+  @IsOptional() @IsString() @MinLength(12) @MaxLength(128) password?: string;
 }
 export class UploadDto {
   @IsString() @MinLength(1) @MaxLength(255) fileName!: string;
@@ -73,4 +76,14 @@ export class LogDto {
 }
 export class CategoryDto {
   @IsString() @MinLength(1) @MaxLength(100) name!: string;
+}
+
+export class SaveOcrDto {
+  @IsString() @MaxLength(2000000) text!: string;
+  @IsString() @MaxLength(2000000) expectedText!: string;
+}
+
+export class CatalogUpdateDto {
+  @IsString() @MinLength(1) @MaxLength(100) name!: string;
+  @IsBoolean() enabled!: boolean;
 }
